@@ -1,0 +1,201 @@
+{
+  "projectType": "framework",
+  "projectName": "NeMo Guardrails",
+  "projectDescription": "Open-source toolkit for adding programmable guardrails to LLM-based conversational applications",
+  "theme": "aspen",
+  "primaryColor": "#76B900",
+  "lightColor": "#90D917",
+  "darkColor": "#5A9000",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/guardrail-types",
+              "concepts/colang",
+              "concepts/architecture"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/config-yaml",
+              "configuration/rails-definition",
+              "configuration/custom-actions",
+              "configuration/llm-configuration"
+            ]
+          },
+          {
+            "group": "Guardrails Library",
+            "pages": [
+              "guardrails/overview",
+              "guardrails/input-rails",
+              "guardrails/output-rails",
+              "guardrails/dialog-rails",
+              "guardrails/retrieval-rails",
+              "guardrails/execution-rails"
+            ]
+          },
+          {
+            "group": "Built-in Guardrails",
+            "pages": [
+              "built-in/jailbreak-detection",
+              "built-in/content-safety",
+              "built-in/topic-control",
+              "built-in/fact-checking",
+              "built-in/hallucination-detection",
+              "built-in/pii-detection",
+              "built-in/prompt-injection"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/python-api",
+              "usage/server",
+              "usage/cli",
+              "usage/langchain-integration"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/docker",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Evaluation",
+            "pages": [
+              "evaluation/overview",
+              "evaluation/vulnerability-scanning",
+              "evaluation/metrics"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Python API",
+            "pages": [
+              "api/llmrails",
+              "api/railsconfig",
+              "api/actions",
+              "api/exceptions"
+            ]
+          },
+          {
+            "group": "Server API",
+            "pages": [
+              "api/server/chat-completions",
+              "api/server/streaming",
+              "api/server/configuration"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "api/cli/server",
+              "api/cli/chat",
+              "api/cli/evaluate"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Colang",
+        "groups": [
+          {
+            "group": "Colang 1.0",
+            "pages": [
+              "colang/v1/introduction",
+              "colang/v1/syntax",
+              "colang/v1/flows",
+              "colang/v1/examples"
+            ]
+          },
+          {
+            "group": "Colang 2.0",
+            "pages": [
+              "colang/v2/overview",
+              "colang/v2/getting-started",
+              "colang/v2/language-reference",
+              "colang/v2/migration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Tutorials",
+            "pages": [
+              "examples/basic-rag",
+              "examples/chatbot-assistant",
+              "examples/custom-guardrails",
+              "examples/multi-rail-configuration"
+            ]
+          },
+          {
+            "group": "Use Cases",
+            "pages": [
+              "examples/customer-support",
+              "examples/qa-system",
+              "examples/agentic-applications"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Programmable guardrails for LLM applications",
+    "Input, output, dialog, retrieval, and execution rails",
+    "Colang DSL for defining conversational flows",
+    "Built-in library of safety guardrails",
+    "Jailbreak and prompt injection detection",
+    "Content safety and topic control",
+    "Fact-checking and hallucination detection",
+    "PII and sensitive data detection",
+    "Integration with LangChain",
+    "Support for multiple LLM providers",
+    "FastAPI server with OpenAI-compatible API",
+    "CLI tools for testing and evaluation",
+    "Async-first architecture"
+  ],
+  "publicApiSurface": [
+    "LLMRails",
+    "RailsConfig",
+    "LLMRails.generate()",
+    "LLMRails.generate_async()",
+    "RailsConfig.from_path()",
+    "RailsConfig.from_content()",
+    "@action decorator",
+    "nemoguardrails server",
+    "nemoguardrails chat",
+    "nemoguardrails evaluate",
+    "/v1/chat/completions endpoint",
+    "Input rails (jailbreak, sensitive data detection)",
+    "Output rails (fact-checking, hallucination, moderation)",
+    "Dialog rails (topic control, conversational flows)",
+    "Retrieval rails (RAG chunk filtering)",
+    "Execution rails (action input/output validation)"
+  ]
+}

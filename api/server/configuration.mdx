@@ -1,0 +1,371 @@
+---
+title: Server Configuration
+description: Configure the NeMo Guardrails server
+---
+
+## Server Modes
+
+The NeMo Guardrails server supports two modes:
+
+### Multi-Config Mode
+
+In multi-config mode, the server can serve multiple guardrails configurations:
+
+```bash
+nemoguardrails server --config=/path/to/configs
+```
+
+Directory structure:
+```
+configs/
+├── config1/
+│   ├── config.yml
+│   └── rails.co
+├── config2/
+│   ├── config.yml
+│   └── rails.co
+└── config3/
+    ├── config.yml
+    └── rails.co
+```
+
+Clients specify which config to use:
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[...],
+    extra_body={
+        "guardrails": {
+            "config_id": "config1"
+        }
+    }
+)
+```
+
+### Single-Config Mode
+
+In single-config mode, the server serves a single configuration:
+
+```bash
+nemoguardrails server --config=/path/to/my-config
+```
+
+Directory structure:
+```
+my-config/
+├── config.yml
+├── rails.co
+└── actions.py
+```
+
+Clients don't need to specify a config_id.
+
+## Server Options
+
+### Command-Line Options
+
+```bash
+nemoguardrails server [OPTIONS]
+```
+
+<ParamField path="--port" type="integer" default="8000">
+  The port that the server should listen on.
+</ParamField>
+
+<ParamField path="--config" type="path">
+  Path to a directory containing configuration sub-folders (multi-config mode) or a single configuration directory (single-config mode).
+</ParamField>
+
+<ParamField path="--default-config-id" type="string">
+  The default configuration to use when no config is specified in requests.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging including prompts and LLM calls.
+</ParamField>
+
+<ParamField path="--disable-chat-ui" type="boolean" default="false">
+  Disable the built-in chat UI.
+</ParamField>
+
+<ParamField path="--auto-reload" type="boolean" default="false">
+  Enable automatic reloading when configuration files change.
+</ParamField>
+
+<ParamField path="--prefix" type="string" default="">
+  A prefix that should be added to all server paths (must start with '/').
+</ParamField>
+
+<CodeGroup>
+```bash Basic Server
+nemoguardrails server --config=./configs --port=8000
+```
+
+```bash Verbose Server
+nemoguardrails server --config=./configs --verbose
+```
+
+```bash Auto-Reload Server
+nemoguardrails server --config=./configs --auto-reload
+```
+
+```bash Server with Prefix
+nemoguardrails server --config=./configs --prefix=/api/guardrails
+```
+</CodeGroup>
+
+## Environment Variables
+
+### CORS Configuration
+
+<ParamField path="NEMO_GUARDRAILS_SERVER_ENABLE_CORS" type="string" default="false">
+  Enable Cross-Origin Resource Sharing (CORS).
+</ParamField>
+
+<ParamField path="NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS" type="string" default="*">
+  Comma-separated list of allowed origins. Use "*" to allow all origins.
+</ParamField>
+
+<CodeGroup>
+```bash Enable CORS
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+export NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS="http://localhost:3000,https://myapp.com"
+nemoguardrails server --config=./configs
+```
+</CodeGroup>
+
+### Model Configuration
+
+<ParamField path="MAIN_MODEL_ENGINE" type="string" default="openai">
+  The default LLM provider when model is specified in request.
+</ParamField>
+
+<ParamField path="MAIN_MODEL_BASE_URL" type="string">
+  Base URL for the LLM provider API.
+</ParamField>
+
+<ParamField path="DEFAULT_CONFIG_ID" type="string">
+  Default configuration ID to use.
+</ParamField>
+
+<CodeGroup>
+```bash Custom Model Provider
+export MAIN_MODEL_ENGINE=nvidia_ai_endpoints
+export MAIN_MODEL_BASE_URL=https://integrate.api.nvidia.com/v1
+nemoguardrails server --config=./configs
+```
+</CodeGroup>
+
+## Server Configuration File
+
+You can create a `config.py` file in your configs directory to customize server behavior:
+
+```python config.py
+from fastapi import FastAPI
+from nemoguardrails.server.datastore import MemoryStore, register_datastore
+
+def init(app: FastAPI):
+    """Initialize server with custom configuration."""
+    
+    # Register a custom datastore for threads
+    datastore = MemoryStore()
+    register_datastore(datastore)
+    
+    # Register custom loggers
+    def custom_logger(data: dict):
+        print(f"Request logged: {data['endpoint']}")
+    
+    from nemoguardrails.server.api import register_logger
+    register_logger(custom_logger)
+    
+    # Set default config
+    from nemoguardrails.server.api import set_default_config_id
+    set_default_config_id("my-default-config")
+```
+
+## API Endpoints
+
+### GET /v1/rails/configs
+
+List available guardrails configurations.
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/v1/rails/configs
+```
+
+```json Response
+[
+  {"id": "config1"},
+  {"id": "config2"},
+  {"id": "config3"}
+]
+```
+</CodeGroup>
+
+### GET /v1/models
+
+List available LLM models from the configured provider.
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/v1/models
+```
+
+```json Response
+{
+  "data": [
+    {
+      "id": "gpt-4o",
+      "object": "model",
+      "created": 1677649963,
+      "owned_by": "openai"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "object": "model",
+      "created": 1677649963,
+      "owned_by": "openai"
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### POST /v1/chat/completions
+
+See [Chat Completions API](/api/server/chat-completions) for details.
+
+## Thread Management
+
+The server supports conversation threads for maintaining state across requests.
+
+### Using Threads
+
+<CodeGroup>
+```python Create Thread
+import uuid
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"
+)
+
+# Generate a unique thread ID (minimum 16 characters)
+thread_id = str(uuid.uuid4())
+
+# First message in thread
+response1 = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "My name is Alice"}],
+    extra_body={
+        "guardrails": {
+            "config_id": "my-config",
+            "thread_id": thread_id
+        }
+    }
+)
+
+# Continue thread
+response2 = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "What is my name?"}],
+    extra_body={
+        "guardrails": {
+            "config_id": "my-config",
+            "thread_id": thread_id
+        }
+    }
+)
+
+print(response2.choices[0].message.content)  # "Your name is Alice"
+```
+</CodeGroup>
+
+### Custom Datastore
+
+By default, threads are stored in memory. You can configure a custom datastore:
+
+```python config.py
+from nemoguardrails.server.datastore import RedisStore, register_datastore
+
+def init(app):
+    # Use Redis for persistent thread storage
+    datastore = RedisStore(
+        host="localhost",
+        port=6379,
+        db=0
+    )
+    register_datastore(datastore)
+```
+
+## Auto-Reload
+
+Enable auto-reload to automatically reload configurations when files change:
+
+```bash
+nemoguardrails server --config=./configs --auto-reload
+```
+
+Requires the `watchdog` package:
+
+```bash
+pip install watchdog
+```
+
+When enabled, the server monitors configuration files and reloads them automatically when changes are detected.
+
+## Chat UI
+
+The server includes a built-in chat UI accessible at `http://localhost:8000`.
+
+To disable the chat UI:
+
+```bash
+nemoguardrails server --config=./configs --disable-chat-ui
+```
+
+## Production Deployment
+
+### Using Gunicorn
+
+```bash
+pip install gunicorn
+gunicorn nemoguardrails.server.api:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000
+```
+
+### Using Docker
+
+```dockerfile Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY configs/ /app/configs/
+
+EXPOSE 8000
+
+CMD ["nemoguardrails", "server", "--config=/app/configs", "--port=8000"]
+```
+
+```bash
+docker build -t guardrails-server .
+docker run -p 8000:8000 guardrails-server
+```
+
+### Environment Variables
+
+```bash
+export OPENAI_API_KEY=sk-...
+export MAIN_MODEL_ENGINE=openai
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+nemoguardrails server --config=./configs
+```

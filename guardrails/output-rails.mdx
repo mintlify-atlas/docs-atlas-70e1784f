@@ -1,0 +1,437 @@
+---
+title: Output Rails
+description: Filter and validate LLM responses with hallucination detection, fact checking, and content safety.
+---
+
+# Output Rails
+
+Output rails execute **after** the LLM generates a response but **before** it's delivered to the user. They validate, filter, and post-process bot messages to prevent hallucinations, policy violations, and sensitive data leaks.
+
+## When Output Rails Execute
+
+Output rails run immediately after the LLM generates a response:
+
+```
+LLM Response → Output Rails → User Delivery
+               ↓
+           Block/Allow/Modify
+```
+
+<Note>
+Blocked outputs trigger fallback responses. The user never sees the original unsafe content.
+</Note>
+
+## Built-in Output Rails
+
+### Content Safety Check Output
+
+Validates bot responses against content policies.
+
+#### Configuration
+
+```yaml
+models:
+  - type: main
+    engine: nim
+    model: meta/llama-3.3-70b-instruct
+
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+rails:
+  output:
+    flows:
+      - content safety check output $model=content_safety
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/content_safety/actions.py:143:
+
+```python
+@action(output_mapping=content_safety_check_output_mapping)
+async def content_safety_check_output(
+    llms: Dict[str, BaseLLM],
+    llm_task_manager: LLMTaskManager,
+    model_name: Optional[str] = None,
+    context: Optional[dict] = None,
+    model_caches: Optional[Dict[str, CacheInterface]] = None,
+    **kwargs,
+) -> dict:
+    _MAX_TOKENS = 3
+    user_input: str = ""
+    bot_response: str = ""
+
+    if context is not None:
+        user_input = context.get("user_message", "")
+        bot_response = context.get("bot_message", "")
+        model_name = model_name or context.get("model", None)
+
+    # ... safety validation
+    return {"allowed": is_safe, "policy_violations": violated_policies}
+```
+
+Output mapping:
+
+```python
+def content_safety_check_output_mapping(result: dict) -> bool:
+    """Returns True if content should be blocked (allowed is False)"""
+    allowed = result.get("allowed", True)
+    return not allowed
+```
+
+### Self Check Output
+
+Uses the main LLM to validate its own responses.
+
+#### Configuration
+
+```yaml
+rails:
+  output:
+    flows:
+      - self check output
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/self_check/output_check/actions.py:32:
+
+```python
+@action(is_system_action=True, output_mapping=lambda value: not value)
+async def self_check_output(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llm: Optional[BaseLLM] = None,
+    config: Optional[RailsConfig] = None,
+    **kwargs,
+):
+    """Checks if the output from the bot.
+
+    Prompt the LLM, using the `self_check_output` task prompt, to determine if the output
+    from the bot should be allowed or not.
+
+    The LLM call should return "yes" if the output is bad and should be blocked
+    (this is consistent with self_check_input_prompt).
+
+    Returns:
+        True if the output should be allowed, False otherwise.
+    """
+
+    _MAX_TOKENS = 3
+    bot_response = context.get("bot_message")
+    user_input = context.get("user_message")
+    bot_thinking = context.get("bot_thinking")
+
+    task = Task.SELF_CHECK_OUTPUT
+
+    if bot_response:
+        prompt = llm_task_manager.render_task_prompt(
+            task=task,
+            context={
+                "user_input": user_input,
+                "bot_response": bot_response,
+                "bot_thinking": bot_thinking,
+            },
+        )
+        # ... LLM validation
+```
+
+<Note>
+The output mapping `lambda value: not value` inverts the result because `self_check_output` returns `True` when safe, but rails expect `True` to block.
+</Note>
+
+### Hallucination Detection
+
+Detects hallucinations by checking self-consistency across multiple completions.
+
+#### Configuration
+
+```yaml
+rails:
+  output:
+    flows:
+      - self check hallucination
+```
+
+#### How It Works
+
+From nemoguardrails/library/hallucination/actions.py:40:
+
+```python
+@action(output_mapping=lambda value: value)
+async def self_check_hallucination(
+    llm: BaseLLM,
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    use_llm_checking: bool = True,
+    config: Optional[RailsConfig] = None,
+    **kwargs,
+):
+    """Checks if the last bot response is a hallucination by checking multiple completions for self-consistency.
+
+    :return: True if hallucination is detected, False otherwise.
+    """
+    bot_response = context.get("bot_message")
+    last_bot_prompt_string = context.get("_last_bot_prompt")
+
+    if bot_response and last_bot_prompt_string:
+        num_responses = HALLUCINATION_NUM_EXTRA_RESPONSES  # 2 extra responses
+        
+        # Generate multiple responses with temperature 1.0
+        llm_with_config = llm.bind(temperature=1.0, n=num_responses)
+        extra_llm_response = await llm_with_config.agenerate(
+            [formatted_prompt],
+            callbacks=logging_callback_manager_for_chain.handlers,
+        )
+        
+        # Extract responses
+        extra_responses = []
+        for i in range(num_responses):
+            result = extra_llm_completions[i].text
+            result = get_multiline_response(result)
+            result = strip_quotes(result)
+            extra_responses.append(result)
+        
+        # Check agreement using LLM
+        if use_llm_checking:
+            prompt = llm_task_manager.render_task_prompt(
+                task=Task.SELF_CHECK_HALLUCINATION,
+                context={
+                    "statement": bot_response,
+                    "paragraph": ". ".join(extra_responses),
+                },
+            )
+            
+            agreement = await llm_call(llm, prompt, stop=stop)
+            return "no" in agreement.lower().strip()
+```
+
+<Warning>
+Hallucination detection works best with **OpenAI models** that support the `n` parameter for multiple completions. Other providers may not support this feature.
+</Warning>
+
+#### Performance Considerations
+
+- Generates 2 extra completions per response
+- Adds significant latency (~3x normal response time)
+- Best for high-stakes applications where accuracy is critical
+
+### Llama Guard Check Output
+
+Uses Meta's Llama Guard model for output validation.
+
+#### Configuration
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4
+
+  - type: llama_guard
+    engine: nim
+    model: meta/llama-guard-3-8b
+
+rails:
+  output:
+    flows:
+      - llama guard check output
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/llama_guard/actions.py:100:
+
+```python
+@action(output_mapping=llama_guard_check_output_mapping)
+async def llama_guard_check_output(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llama_guard_llm: Optional[BaseLLM] = None,
+) -> dict:
+    """
+    Check the bot response using the configured Llama Guard model
+    and the configured prompt containing the safety guidelines.
+    """
+    user_input = context.get("user_message")
+    bot_response = context.get("bot_message")
+
+    check_output_prompt = llm_task_manager.render_task_prompt(
+        task=Task.LLAMA_GUARD_CHECK_OUTPUT,
+        context={
+            "user_input": user_input,
+            "bot_response": bot_response,
+        },
+    )
+    # ... returns {"allowed": bool, "policy_violations": list}
+```
+
+The mapping function:
+
+```python
+def llama_guard_check_output_mapping(result: dict) -> bool:
+    """Returns True if response should be blocked (allowed is False)"""
+    allowed = result.get("allowed", True)
+    return not allowed
+```
+
+### Sensitive Data Masking
+
+Removes PII from bot responses before delivery.
+
+#### Configuration
+
+```yaml
+rails:
+  config:
+    sensitive_data_detection:
+      output:
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - CREDIT_CARD
+        score_threshold: 0.6
+
+  output:
+    flows:
+      - mask sensitive data output
+```
+
+#### Usage in Flows
+
+```colang
+define flow sanitize output
+  bot ...
+  $bot_message = execute mask_sensitive_data(source="output", text=$bot_message)
+```
+
+The action replaces detected entities:
+
+```
+Original: "Contact John Doe at john@example.com"
+Masked:   "Contact <PERSON> at <EMAIL_ADDRESS>"
+```
+
+## Usage Examples
+
+### Combining Multiple Output Rails
+
+```yaml
+rails:
+  output:
+    flows:
+      - content safety check output $model=content_safety
+      - self check hallucination
+      - mask sensitive data output
+```
+
+### Conditional Output Checking
+
+Only check outputs for specific topics:
+
+```colang
+define flow answer medical question
+  user ask medical question
+  bot provide medical answer
+  
+  # Extra validation for medical advice
+  execute content_safety_check_output(model="medical_safety")
+  execute self_check_hallucination
+```
+
+### Custom Fallback Messages
+
+```colang
+define bot refuse unsafe response
+  "I apologize, but I cannot provide that response."
+  "Let me try to help you in a different way."
+
+define flow handle blocked output
+  bot ...
+  if $output_blocked
+    bot refuse unsafe response
+```
+
+### Parallel Output Rails
+
+Enable parallel execution for better performance:
+
+```yaml
+rails:
+  config:
+    parallel_rails:
+      output: true
+
+  output:
+    flows:
+      - content safety check output $model=content_safety
+      - llama guard check output
+```
+
+## Advanced Configurations
+
+### Reasoning-Enabled Content Safety
+
+For advanced models, enable reasoning in safety checks:
+
+```yaml
+rails:
+  config:
+    content_safety:
+      reasoning:
+        enabled: true
+```
+
+This provides explainable safety decisions with reasoning chains.
+
+### Caching Output Checks
+
+Enable model caching to speed up repeated checks:
+
+```yaml
+rails:
+  config:
+    model_caches:
+      content_safety:
+        type: memory
+        max_size: 1000
+```
+
+From nemoguardrails/library/content_safety/actions.py:196:
+
+```python
+if cache:
+    cache_key = create_normalized_cache_key(check_output_prompt)
+    cached_result = get_from_cache_and_restore_stats(cache, cache_key)
+    if cached_result is not None:
+        log.debug(f"Content safety output cache hit for model '{model_name}'")
+        return cached_result
+```
+
+## Best Practices
+
+1. **Prioritize fast rails first** - Run lightweight checks before expensive ones
+2. **Use specialized models** - Content safety models are faster than LLM self-checks
+3. **Cache results** - Reduce latency for similar outputs
+4. **Layer defenses** - Combine multiple complementary rails
+5. **Test fallback messages** - Ensure blocked outputs provide helpful alternatives
+6. **Monitor false positives** - Track and tune thresholds to minimize over-blocking
+
+## Performance Impact
+
+| Rail Type | Latency Impact | Accuracy |
+|-----------|----------------|----------|
+| Content Safety (NIM) | Low (~50-100ms) | High |
+| Llama Guard | Low (~50-100ms) | High |
+| Self Check Output | Medium (~200-500ms) | Medium |
+| Hallucination Detection | High (~3x response time) | High |
+| Sensitive Data Masking | Low (~10-50ms) | High |
+
+## See Also
+
+- [Input Rails](/guardrails/input-rails) - Validate user inputs
+- [Retrieval Rails](/guardrails/retrieval-rails) - Fact checking for RAG
+- [Rail Types](/concepts/guardrail-types) - Understanding all rail categories

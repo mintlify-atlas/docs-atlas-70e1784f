@@ -1,0 +1,591 @@
+---
+title: Architecture
+description: Understanding the event-driven runtime and guardrails processing pipeline
+---
+
+# Architecture Overview
+
+NeMo Guardrails uses an **event-driven runtime** architecture to process conversations through multiple stages of guardrails. Understanding this architecture helps you build more effective and efficient guardrails.
+
+<Frame>
+  <img src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/programmable_guardrails.png" alt="Architecture Overview" />
+</Frame>
+
+## High-Level Architecture
+
+The NeMo Guardrails library acts as an intermediary layer between your application code and LLM requests/responses:
+
+1. **Application** sends a user message to **Guardrails**
+2. **Guardrails** applies input rails, dialog rails, and potentially retrieval/execution rails
+3. **Guardrails** calls the **LLM** when needed
+4. **Guardrails** applies output rails to the response
+5. **Guardrails** returns the validated response to **Application**
+
+## Core Components
+
+### RailsConfig
+
+The `RailsConfig` class is the central configuration object that defines:
+
+<Tabs>
+  <Tab title="Models">
+    LLM and embedding model configurations:
+    
+    ```python
+    from nemoguardrails.rails.llm.config import Model, RailsConfig
+    
+    config = RailsConfig(
+        models=[
+            Model(
+                type="main",
+                engine="openai",
+                model="gpt-4o-mini"
+            ),
+            Model(
+                type="embeddings",
+                engine="openai",
+                model="text-embedding-ada-002"
+            )
+        ]
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Rails">
+    Configuration for each rail type:
+    
+    ```python
+    config = RailsConfig(
+        rails={
+            "input": {
+                "flows": ["check jailbreak", "mask pii"]
+            },
+            "output": {
+                "flows": ["self check facts"]
+            }
+        }
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Flows">
+    Colang flow definitions loaded from `.co` files:
+    
+    ```python
+    # Loaded automatically from config path
+    config = RailsConfig.from_path("./config")
+    
+    # config/rails.co contains flow definitions
+    ```
+  </Tab>
+  
+  <Tab title="Actions">
+    Custom Python actions registered for use in flows:
+    
+    ```python
+    from nemoguardrails.actions import action
+    
+    @action()
+    async def custom_check(context: dict):
+        # Custom logic
+        return True
+    ```
+  </Tab>
+</Tabs>
+
+### LLMRails
+
+The `LLMRails` class is the main entry point for using guardrails. It:
+
+- Initializes the runtime based on the Colang version (1.0 or 2.x)
+- Loads and registers all actions
+- Manages the conversation state
+- Orchestrates the guardrails processing pipeline
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+# Initialize
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config, verbose=True)
+
+# Use
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+#### Key Methods
+
+<AccordionGroup>
+  <Accordion title="generate() / generate_async()">
+    Main method for getting LLM responses with guardrails applied:
+    
+    ```python
+    # Sync version
+    response = rails.generate(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    
+    # Async version
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="generate_events() / generate_events_async()">
+    Lower-level method that returns the full event stream:
+    
+    ```python
+    events = await rails.generate_events_async([
+        {"type": "UtteranceUserActionFinished", "final_transcript": "Hello"}
+    ])
+    ```
+  </Accordion>
+  
+  <Accordion title="register_action()">
+    Register custom actions dynamically:
+    
+    ```python
+    async def my_action():
+        return "result"
+    
+    rails.register_action(my_action, name="my_action")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Runtime (Event-Driven Engine)
+
+The runtime is the core event processing engine. There are two implementations:
+
+<CardGroup cols={2}>
+  <Card title="RuntimeV1_0" icon="1">
+    Runtime for Colang 1.0:
+    
+    - Flows are active by default
+    - Uses pattern matching for user/bot messages
+    - Simpler, more implicit behavior
+  </Card>
+  
+  <Card title="RuntimeV2_x" icon="2">
+    Runtime for Colang 2.0:
+    
+    - Explicit flow activation
+    - More control over event handling
+    - Supports advanced features like the `...` operator
+  </Card>
+</CardGroup>
+
+Both runtimes:
+- Process events in an async event loop
+- Execute actions and flows
+- Generate LLM prompts and parse responses
+- Maintain conversation state
+
+## The Guardrails Processing Pipeline
+
+Here's what happens when a user message is processed:
+
+### Stage 1: Generate Canonical User Message
+
+<Steps>
+  <Step title="Receive User Utterance">
+    An `UtteranceUserActionFinished` event is created with the user's text:
+    
+    ```python
+    {
+        "type": "UtteranceUserActionFinished",
+        "final_transcript": "Hello, how are you?"
+    }
+    ```
+  </Step>
+  
+  <Step title="Apply Input Rails">
+    Any configured input rails are executed to validate/transform the input.
+  </Step>
+  
+  <Step title="Generate User Intent">
+    The `generate_user_intent` action:
+    - Performs vector search on user message examples
+    - Includes top 5 matches in the prompt
+    - Asks the LLM to generate the canonical form
+    
+    ```colang
+    define flow generate user intent
+      event UtteranceUserActionFinished(final_transcript="...")
+      execute generate_user_intent
+    ```
+  </Step>
+  
+  <Step title="Create UserIntent Event">
+    A `UserIntent` event is generated:
+    
+    ```python
+    {
+        "type": "UserIntent",
+        "intent": "user express greeting"
+    }
+    ```
+  </Step>
+</Steps>
+
+### Stage 2: Decide Next Steps
+
+Once the `UserIntent` event exists, the runtime determines what happens next.
+
+<Tabs>
+  <Tab title="Path 1: Predefined Flow">
+    If a flow matches, it executes directly:
+    
+    ```colang
+    define flow greeting
+      user express greeting  # Matches!
+      bot express greeting   # Execute this next
+    ```
+  </Tab>
+  
+  <Tab title="Path 2: LLM-Generated Step">
+    If no flow matches, ask the LLM:
+    
+    ```colang
+    define flow generate next step
+      priority 0.9  # Lower than default flows
+      user ...
+      execute generate_next_step
+    ```
+    
+    The `generate_next_step` action:
+    - Performs vector search on relevant flows
+    - Includes top 5 flows in the prompt
+    - Asks LLM to predict the next step
+  </Tab>
+</Tabs>
+
+**Next steps can be:**
+
+1. **Bot Message** (`BotIntent` event) → Generate utterance
+2. **Action Call** (`StartInternalSystemAction` event) → Execute action
+
+### Stage 3: Execute Actions (if needed)
+
+When an action is triggered:
+
+<Steps>
+  <Step title="Start Action">
+    `StartInternalSystemAction` event is created
+  </Step>
+  
+  <Step title="Apply Execution Rails">
+    Validate action inputs if execution rails are configured
+  </Step>
+  
+  <Step title="Execute Action">
+    The Python function is called (async, non-blocking)
+  </Step>
+  
+  <Step title="Apply Execution Rails">
+    Validate action outputs
+  </Step>
+  
+  <Step title="Finish Action">
+    `InternalSystemActionFinished` event is created with the result
+  </Step>
+</Steps>
+
+### Stage 4: Generate Bot Utterance
+
+When a `BotIntent` event is generated:
+
+<Steps>
+  <Step title="Retrieve Context (RAG)">
+    If a knowledge base is configured:
+    
+    ```colang
+    define extension flow generate bot message
+      priority 100
+      bot ...
+      execute retrieve_relevant_chunks
+      execute generate_bot_message
+    ```
+    
+    The `retrieve_relevant_chunks` action:
+    - Searches the knowledge base
+    - Applies retrieval rails to filter chunks
+    - Adds relevant chunks to the prompt context
+  </Step>
+  
+  <Step title="Generate Utterance">
+    The `generate_bot_message` action:
+    - Performs vector search on bot message examples
+    - Includes top 5 matches in the prompt
+    - Includes retrieved chunks (if any)
+    - Asks the LLM to generate the response
+  </Step>
+  
+  <Step title="Apply Output Rails">
+    Configured output rails validate the response:
+    
+    ```colang
+    define flow self check facts
+      bot ...
+      $check = execute fact_check
+      if not $check
+        bot inform cannot answer
+        stop
+    ```
+  </Step>
+  
+  <Step title="Create StartUtteranceBotAction">
+    Final event is created with the bot's response
+  </Step>
+</Steps>
+
+### Complete Event Stream Example
+
+Here's a real event stream for processing "Hello":
+
+```python
+[
+    # 1. User input
+    {
+        "type": "UtteranceUserActionFinished",
+        "final_transcript": "Hello"
+    },
+    
+    # 2. Canonical form generated
+    {
+        "type": "UserIntent",
+        "intent": "user express greeting"
+    },
+    
+    # 3. Bot intent decided
+    {
+        "type": "BotIntent",
+        "intent": "bot express greeting"
+    },
+    
+    # 4. Bot utterance generated
+    {
+        "type": "StartUtteranceBotAction",
+        "script": "Hello there! How can I help you today?"
+    }
+]
+```
+
+## Async-First Design
+
+NeMo Guardrails is built with async/await from the ground up:
+
+### Why Async?
+
+<CardGroup cols={2}>
+  <Card title="Better Concurrency" icon="users">
+    Multiple users can be served simultaneously. While one request waits for an LLM response, others continue processing.
+  </Card>
+  
+  <Card title="Non-Blocking I/O" icon="bolt">
+    LLM calls, API requests, and database queries don't block the event loop.
+  </Card>
+  
+  <Card title="Efficient Resource Usage" icon="microchip">
+    Better CPU and memory utilization during I/O-bound operations.
+  </Card>
+  
+  <Card title="Dual API" icon="code">
+    Both sync and async methods available for compatibility.
+  </Card>
+</CardGroup>
+
+### Sync vs Async Usage
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Synchronous (blocks until complete)
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello"}]
+)
+
+# Asynchronous (non-blocking)
+import asyncio
+
+async def chat():
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    return response
+
+response = asyncio.run(chat())
+```
+
+<Warning>
+  Always use async methods (`generate_async`) in async contexts to avoid blocking the event loop.
+</Warning>
+
+### Custom Async Actions
+
+Actions should be async for better performance:
+
+```python
+from nemoguardrails.actions import action
+import httpx
+
+@action()
+async def fetch_weather(city: str):
+    """Fetch weather data asynchronously."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://api.weather.com/{city}")
+        return response.json()
+```
+
+## Caching and Performance
+
+NeMo Guardrails includes several caching mechanisms:
+
+### Model Output Caching
+
+Cache LLM responses to avoid redundant calls:
+
+```yaml
+# config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+    
+model_cache:
+  enabled: true
+  maxsize: 50000
+  stats:
+    enabled: true
+    log_interval: 60  # Log cache stats every 60 seconds
+```
+
+### Embeddings Caching
+
+Vector embeddings are cached automatically for:
+- User message examples
+- Bot message examples  
+- Flow definitions
+- Knowledge base chunks
+
+### History Cache
+
+The events history for user message sequences is cached to maintain state across turns.
+
+## Extending the Architecture
+
+You can extend NeMo Guardrails in several ways:
+
+<Tabs>
+  <Tab title="Custom Actions">
+    Add new Python functions:
+    
+    ```python
+    # config/actions.py
+    from nemoguardrails.actions import action
+    
+    @action()
+    async def my_custom_action(param: str):
+        # Your logic here
+        return result
+    ```
+  </Tab>
+  
+  <Tab title="Custom LLM Providers">
+    Register new LLM engines:
+    
+    ```python
+    # config/config.py
+    from nemoguardrails.llm.providers import register_llm_provider
+    
+    def init(app):
+        register_llm_provider(
+            "my_provider",
+            MyCustomLLMProvider
+        )
+    ```
+  </Tab>
+  
+  <Tab title="Custom Embedding Providers">
+    Add embedding model support:
+    
+    ```python
+    from nemoguardrails.embeddings.providers import register_embedding_provider
+    
+    rails.register_embedding_provider(
+        name="my_embeddings",
+        provider=MyEmbeddingProvider
+    )
+    ```
+  </Tab>
+  
+  <Tab title="LangChain Integration">
+    Use LangChain components:
+    
+    ```python
+    from langchain.chains import LLMChain
+    from nemoguardrails.actions import action
+    
+    @action()
+    async def run_chain(query: str):
+        chain = LLMChain(...)
+        return await chain.arun(query)
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration Loading
+
+The configuration loading process:
+
+<Steps>
+  <Step title="Load config.yml">
+    Parse YAML configuration for models, rails, instructions
+  </Step>
+  
+  <Step title="Load .co files">
+    Parse all Colang files in the config directory
+  </Step>
+  
+  <Step title="Load config.py">
+    Execute custom initialization code (if present)
+  </Step>
+  
+  <Step title="Load actions.py">
+    Import and register custom actions (if present)
+  </Step>
+  
+  <Step title="Load library flows">
+    Import built-in guardrails from the library
+  </Step>
+  
+  <Step title="Initialize runtime">
+    Create the appropriate runtime (V1_0 or V2_x)
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build Your First Config" icon="hammer" href="/quickstart">
+    Create your first guardrails configuration
+  </Card>
+  
+  <Card title="Custom Actions" icon="code" href="/configuration/custom-actions">
+    Learn how to write custom Python actions
+  </Card>
+  
+  <Card title="Advanced Flows" icon="diagram-project" href="/colang/v1/flows">
+    Master complex Colang flow patterns
+  </Card>
+  
+  <Card title="Performance Tuning" icon="gauge-high" href="/deployment/production">
+    Optimize your guardrails for production
+  </Card>
+</CardGroup>

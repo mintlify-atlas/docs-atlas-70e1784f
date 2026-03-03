@@ -1,0 +1,181 @@
+---
+title: Jailbreak Detection
+description: Detect and block jailbreak attempts using heuristics or ML models
+---
+
+Jailbreak detection helps protect your LLM application from adversarial prompts designed to bypass safety controls and elicit harmful responses.
+
+## Overview
+
+NeMo Guardrails provides two approaches for jailbreak detection:
+
+1. **Heuristics-based detection** - Fast, lightweight checks using perplexity analysis
+2. **Model-based detection** - ML classifier using embeddings for more accurate detection
+
+Both methods can run locally (not recommended for production) or via a dedicated API endpoint.
+
+## Heuristics-Based Detection
+
+This method uses two perplexity-based heuristics to detect jailbreak attempts:
+
+- **Length per perplexity**: Analyzes the ratio of prompt length to perplexity
+- **Prefix-suffix perplexity**: Examines perplexity patterns at the beginning and end
+
+### Configuration
+
+```yaml config.yml
+rails:
+  config:
+    jailbreak_detection:
+      server_endpoint: "http://localhost:1337/heuristics"
+      length_per_perplexity_threshold: 89.79
+      prefix_suffix_perplexity_threshold: 1845.65
+  
+  input:
+    flows:
+      - jailbreak detection heuristics
+```
+
+### Configuration Parameters
+
+- `server_endpoint` - URL of the jailbreak detection API (optional, runs in-process if not provided)
+- `length_per_perplexity_threshold` - Threshold for length/perplexity ratio (default: 89.79)
+- `prefix_suffix_perplexity_threshold` - Threshold for prefix-suffix perplexity (default: 1845.65)
+
+<Warning>
+Running jailbreak detection in-process (without `server_endpoint`) is NOT RECOMMENDED for production. Use a dedicated API endpoint for better performance and security.
+</Warning>
+
+## Model-Based Detection
+
+This method uses a trained embedding-based classifier to detect jailbreak attempts with higher accuracy.
+
+### Configuration with Custom Endpoint
+
+```yaml config.yml
+rails:
+  config:
+    jailbreak_detection:
+      server_endpoint: "http://localhost:1337/model"
+      embedding: "Snowflake/snowflake-arctic-embed-m-long"
+  
+  input:
+    flows:
+      - jailbreak detection model
+```
+
+### Configuration with NIM
+
+For NVIDIA NIM deployments:
+
+```yaml config.yml
+rails:
+  config:
+    jailbreak_detection:
+      nim_base_url: "http://localhost:8000/v1/"
+      nim_server_endpoint: "/classify"
+      nim_api_key: "your-api-key"  # Optional
+  
+  input:
+    flows:
+      - jailbreak detection model
+```
+
+### Configuration Parameters
+
+- `server_endpoint` - URL of the model-based jailbreak detection API
+- `nim_base_url` - Base URL for NVIDIA NIM deployment
+- `nim_server_endpoint` - Classification endpoint path (default: "/classify")
+- `nim_api_key` - API key for NIM authentication (optional)
+- `embedding` - Embedding model to use (e.g., "Snowflake/snowflake-arctic-embed-m-long")
+
+## Using Both Methods
+
+You can enable both heuristics and model-based detection for defense in depth:
+
+```yaml config.yml
+rails:
+  config:
+    jailbreak_detection:
+      server_endpoint: "http://localhost:1337/heuristics"
+      length_per_perplexity_threshold: 89.79
+      prefix_suffix_perplexity_threshold: 1845.65
+      embedding: "Snowflake/snowflake-arctic-embed-m-long"
+  
+  input:
+    flows:
+      - jailbreak detection heuristics
+      - jailbreak detection model
+```
+
+## Behavior
+
+When a jailbreak attempt is detected:
+
+**With Rails Exceptions enabled:**
+```yaml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+A `JailbreakDetectionRailException` is raised with details about the detection.
+
+**Without Rails Exceptions:**
+The bot refuses to respond and the conversation is aborted.
+
+## Caching
+
+Model-based detection supports caching to improve performance:
+
+```python
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config, enable_model_caching=True)
+```
+
+Cache results are stored based on the normalized prompt, reducing repeated API calls for similar inputs.
+
+## Custom Flows
+
+You can create custom flows that use the jailbreak detection actions:
+
+```colang flows.co
+flow my custom jailbreak check
+  """Custom jailbreak detection with logging."""
+  $is_jailbreak_heuristic = await JailbreakDetectionHeuristicsAction
+  $is_jailbreak_model = await JailbreakDetectionModelAction
+  
+  if $is_jailbreak_heuristic or $is_jailbreak_model
+    log "Jailbreak detected"
+    bot refuse to respond
+    abort
+```
+
+## Implementation Details
+
+The jailbreak detection flows are defined in:
+- `/nemoguardrails/library/jailbreak_detection/flows.co`
+- `/nemoguardrails/library/jailbreak_detection/actions.py`
+
+Actions:
+- `JailbreakDetectionHeuristicsAction` - Runs heuristic checks
+- `JailbreakDetectionModelAction` - Runs ML model classification
+
+## Dependencies
+
+For local in-process detection (model-based), you need:
+
+```bash
+pip install scikit-learn torch
+```
+
+<Note>
+The heuristics-based method has minimal dependencies and can run in-process more easily, but model-based detection requires additional ML libraries.
+</Note>
+
+## See Also
+
+- [Content Safety](/built-in/content-safety)
+- [Prompt Injection Detection](/built-in/prompt-injection)
+- [Input Rails](/guardrails/input-rails)

@@ -1,0 +1,616 @@
+---
+title: Guardrails Server
+description: Deploy NeMo Guardrails as a REST API server with OpenAI-compatible endpoints
+---
+
+The NeMo Guardrails server provides a REST API for adding guardrails to your LLM applications. It's compatible with OpenAI's Chat Completions API, making integration straightforward.
+
+## Starting the Server
+
+### Basic Usage
+
+Start the server pointing to a directory containing guardrails configurations:
+
+```bash
+nemoguardrails server --config=/path/to/configs
+```
+
+The server will:
+- Start on port 8000 by default
+- Load all valid configurations from subdirectories
+- Expose the Chat UI at `http://localhost:8000`
+- Expose the API at `http://localhost:8000/v1/`
+
+### Command Options
+
+<CodeGroup>
+```bash Basic
+nemoguardrails server --config=./configs
+```
+
+```bash Custom Port
+nemoguardrails server --config=./configs --port=8080
+```
+
+```bash Verbose Mode
+nemoguardrails server --config=./configs --verbose
+```
+
+```bash No Chat UI
+nemoguardrails server --config=./configs --disable-chat-ui
+```
+
+```bash Auto-Reload
+# Automatically reload configs when files change
+nemoguardrails server --config=./configs --auto-reload
+```
+
+```bash With Prefix
+# Add a path prefix to all endpoints
+nemoguardrails server --config=./configs --prefix=/api/guardrails
+```
+</CodeGroup>
+
+**Available Options:**
+
+<ParamField path="--config" type="string" default="./config">
+  Path to a directory containing multiple configuration sub-folders, or a single configuration directory.
+</ParamField>
+
+<ParamField path="--port" type="integer" default="8000">
+  The port that the server should listen on.
+</ParamField>
+
+<ParamField path="--default-config-id" type="string">
+  The default configuration to use when no config is specified in requests.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging including prompts and completions.
+</ParamField>
+
+<ParamField path="--disable-chat-ui" type="boolean" default="false">
+  Disable the web-based Chat UI.
+</ParamField>
+
+<ParamField path="--auto-reload" type="boolean" default="false">
+  Enable automatic reloading of configurations when files change.
+</ParamField>
+
+<ParamField path="--prefix" type="string" default="">
+  A prefix to add to all server paths (must start with '/').
+</ParamField>
+
+## Configuration Directory Structure
+
+### Multiple Configurations
+
+For multiple guardrails configurations:
+
+```
+configs/
+├── customer_service/
+│   ├── config.yml
+│   ├── rails.co
+│   └── actions.py
+├── content_moderation/
+│   ├── config.yml
+│   └── rails.co
+└── qa_bot/
+    ├── config.yml
+    └── rails.co
+```
+
+Each subdirectory represents a separate configuration accessible via its name.
+
+### Single Configuration
+
+For a single configuration:
+
+```
+my_config/
+├── config.yml
+├── rails.co
+├── actions.py
+└── kb/
+    └── documents.md
+```
+
+When pointing to a directory with `config.yml` directly, the server runs in single-config mode.
+
+## API Endpoints
+
+### Chat Completions
+
+The primary endpoint for generating responses with guardrails.
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config_id": "customer_service",
+    "messages": [
+      {"role": "user", "content": "Hello! How can I reset my password?"}
+    ]
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "messages": [
+            {"role": "user", "content": "Hello!"}
+        ]
+    }
+)
+
+result = response.json()
+print(result["choices"][0]["message"]["content"])
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/v1/chat/completions', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    config_id: 'customer_service',
+    messages: [
+      { role: 'user', content: 'Hello!' }
+    ]
+  })
+})
+.then(res => res.json())
+.then(data => console.log(data.choices[0].message.content));
+```
+</CodeGroup>
+
+**Request Body:**
+
+<ParamField path="config_id" type="string">
+  The ID of the guardrails configuration to use. Corresponds to the subdirectory name.
+</ParamField>
+
+<ParamField path="messages" type="array" required>
+  Array of message objects with `role` and `content` fields.
+</ParamField>
+
+<ParamField path="model" type="string">
+  Optional model override. If specified, overrides the main model in the configuration.
+</ParamField>
+
+<ParamField path="stream" type="boolean" default="false">
+  Enable streaming responses.
+</ParamField>
+
+<ParamField path="max_tokens" type="integer">
+  Maximum tokens to generate.
+</ParamField>
+
+<ParamField path="temperature" type="number">
+  Sampling temperature (0-2).
+</ParamField>
+
+<ParamField path="top_p" type="number">
+  Nucleus sampling parameter.
+</ParamField>
+
+<ParamField path="stop" type="array">
+  Stop sequences.
+</ParamField>
+
+**Response Format:**
+
+```json
+{
+  "id": "chatcmpl-123",
+  "object": "chat.completion",
+  "created": 1677652288,
+  "model": "gpt-3.5-turbo",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
+```
+
+### Streaming Responses
+
+Enable streaming to receive responses token-by-token:
+
+<CodeGroup>
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "messages": [{"role": "user", "content": "Tell me a story"}],
+        "stream": True
+    },
+    stream=True
+)
+
+for line in response.iter_lines():
+    if line:
+        decoded = line.decode('utf-8')
+        if decoded.startswith('data: '):
+            chunk = decoded[6:]
+            if chunk != '[DONE]':
+                print(chunk, end='', flush=True)
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8000/v1/chat/completions', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    config_id: 'customer_service',
+    messages: [{ role: 'user', content: 'Tell me a story' }],
+    stream: true
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  console.log(chunk);
+}
+```
+</CodeGroup>
+
+### List Configurations
+
+Get all available guardrails configurations:
+
+```bash
+curl http://localhost:8000/v1/rails/configs
+```
+
+**Response:**
+
+```json
+[
+  {"id": "customer_service"},
+  {"id": "content_moderation"},
+  {"id": "qa_bot"}
+]
+```
+
+### List Models
+
+Get available models from the configured provider:
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+**Response:**
+
+```json
+{
+  "data": [
+    {"id": "gpt-3.5-turbo", "object": "model"},
+    {"id": "gpt-4", "object": "model"}
+  ]
+}
+```
+
+## Advanced Features
+
+### Context and State Management
+
+Include context variables in your requests:
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "messages": [
+            {"role": "user", "content": "What's my account status?"}
+        ],
+        "context": {
+            "user_id": "12345",
+            "account_type": "premium",
+            "user_name": "Alice"
+        }
+    }
+)
+```
+
+### Thread Support
+
+Maintain conversation threads across multiple requests:
+
+```python
+import requests
+import uuid
+
+# Generate a unique thread ID (minimum 16 characters)
+thread_id = str(uuid.uuid4())
+
+# First message in thread
+response1 = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "thread_id": thread_id,
+        "messages": [{"role": "user", "content": "My name is Alice"}]
+    }
+)
+
+# Continue the thread
+response2 = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "thread_id": thread_id,
+        "messages": [{"role": "user", "content": "What's my name?"}]
+    }
+)
+# Response will include context from previous messages
+```
+
+### Model Override
+
+Override the configured model for specific requests:
+
+```python
+response = requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    json={
+        "config_id": "customer_service",
+        "model": "gpt-4",  # Override config model
+        "messages": [{"role": "user", "content": "Complex question"}]
+    }
+)
+```
+
+## Environment Variables
+
+### CORS Configuration
+
+Enable Cross-Origin Resource Sharing:
+
+```bash
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+export NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS="http://localhost:3000,https://example.com"
+
+nemoguardrails server --config=./configs
+```
+
+### Model Configuration
+
+Set the main model engine and base URL:
+
+```bash
+export MAIN_MODEL_ENGINE=openai
+export MAIN_MODEL_BASE_URL=http://localhost:8080/v1
+
+nemoguardrails server --config=./configs
+```
+
+## Docker Deployment
+
+### Using Docker
+
+```bash
+# Build the image
+docker build -t nemoguardrails .
+
+# Run the server
+docker run -p 8000:8000 \
+  -v $(pwd)/configs:/configs \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  nemoguardrails \
+  nemoguardrails server --config=/configs
+```
+
+### Docker Compose
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  guardrails:
+    image: nemoguardrails
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configs:/configs
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: nemoguardrails server --config=/configs --verbose
+```
+
+Run with:
+
+```bash
+docker-compose up
+```
+
+## Chat UI
+
+The built-in Chat UI is available at `http://localhost:8000` when the server is running.
+
+**Features:**
+- Interactive chat interface
+- Configuration selection
+- Message history
+- Real-time streaming
+
+**Disable the UI:**
+
+```bash
+nemoguardrails server --config=./configs --disable-chat-ui
+```
+
+When disabled, the root endpoint returns:
+
+```json
+{"status": "ok"}
+```
+
+## Health Checks and Monitoring
+
+### Health Check
+
+Check if the server is running:
+
+```bash
+curl http://localhost:8000/v1/rails/configs
+```
+
+A successful response indicates the server is healthy.
+
+### Logging
+
+Enable verbose logging to monitor requests:
+
+```bash
+nemoguardrails server --config=./configs --verbose
+```
+
+Logs will include:
+- Request details
+- Configuration loading
+- LLM calls (if verbose)
+- Rail activations
+- Error traces
+
+## Integration Examples
+
+### OpenAI SDK
+
+Use the OpenAI Python SDK with the guardrails server:
+
+```python
+from openai import OpenAI
+
+# Point to the guardrails server
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"  # API key handled by guardrails config
+)
+
+response = client.chat.completions.create(
+    model="customer_service",  # This is the config_id
+    messages=[
+        {"role": "user", "content": "Hello!"}
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+### LangChain
+
+Integrate with LangChain:
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage
+
+llm = ChatOpenAI(
+    base_url="http://localhost:8000/v1",
+    model="customer_service",  # config_id
+    api_key="not-needed"
+)
+
+response = llm.invoke([HumanMessage(content="Hello!")])
+print(response.content)
+```
+
+### Production Deployment
+
+For production deployments:
+
+<Steps>
+  <Step title="Use a process manager">
+    Use systemd, supervisord, or PM2 to manage the server process.
+  </Step>
+  
+  <Step title="Enable auto-reload">
+    Use `--auto-reload` to automatically reload configurations without server restart.
+  </Step>
+  
+  <Step title="Set up reverse proxy">
+    Use Nginx or Apache as a reverse proxy for SSL/TLS termination and load balancing.
+  </Step>
+  
+  <Step title="Configure CORS">
+    Set appropriate CORS headers for your frontend applications.
+  </Step>
+  
+  <Step title="Monitor logs">
+    Set up log aggregation and monitoring with tools like ELK stack or Datadog.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Configuration Not Loading
+
+Ensure your configuration directory has valid `config.yml` files:
+
+```bash
+# Check structure
+ls -la configs/
+
+# Validate YAML
+python -c "import yaml; yaml.safe_load(open('configs/my_config/config.yml'))"
+```
+
+### Port Already in Use
+
+Change the port:
+
+```bash
+nemoguardrails server --config=./configs --port=8080
+```
+
+### Model Connection Issues
+
+Verify environment variables:
+
+```bash
+echo $OPENAI_API_KEY
+echo $MAIN_MODEL_ENGINE
+echo $MAIN_MODEL_BASE_URL
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="code" href="/usage/python-api">
+    Use guardrails programmatically in your code
+  </Card>
+  <Card title="CLI Tools" icon="terminal" href="/usage/cli">
+    Interactive chat and testing tools
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/rails-definition">
+    Configure your guardrails
+  </Card>
+  <Card title="Docker Guide" icon="docker" href="/deployment/docker">
+    Deploy with Docker
+  </Card>
+</CardGroup>

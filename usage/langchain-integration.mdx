@@ -1,0 +1,597 @@
+---
+title: LangChain Integration
+description: Integrate NeMo Guardrails with LangChain chains, agents, and runnables
+---
+
+NeMo Guardrails integrates seamlessly with LangChain through the `RunnableRails` class, which implements the LangChain Runnable protocol. This allows you to add guardrails to any LangChain component.
+
+## Installation
+
+Install with LangChain support:
+
+```bash
+pip install nemoguardrails langchain langchain-openai
+```
+
+## RunnableRails
+
+The `RunnableRails` class wraps a guardrails configuration and provides LangChain-compatible interfaces.
+
+### Basic Usage
+
+```python
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Load guardrails configuration
+config = RailsConfig.from_path("./config")
+
+# Create a runnable with guardrails
+guardrails = RunnableRails(config)
+
+# Use it like any LangChain runnable
+result = guardrails.invoke({"input": "Hello!"})
+print(result["output"])
+```
+
+### Constructor Parameters
+
+<ParamField path="config" type="RailsConfig" required>
+  The rails configuration to use.
+</ParamField>
+
+<ParamField path="llm" type="BaseLanguageModel" default="None">
+  Optional LLM to use with the rails. If not provided, uses the LLM from the config.
+</ParamField>
+
+<ParamField path="tools" type="List[Tool]" default="None">
+  Optional list of LangChain tools to register with the rails.
+</ParamField>
+
+<ParamField path="passthrough" type="bool" default="True">
+  Whether to pass through the original prompt or let rails modify it.
+</ParamField>
+
+<ParamField path="runnable" type="Runnable" default="None">
+  Optional runnable to wrap with the rails.
+</ParamField>
+
+<ParamField path="input_key" type="str" default="input">
+  The key to use for input when dealing with dict input.
+</ParamField>
+
+<ParamField path="output_key" type="str" default="output">
+  The key to use for output when dealing with dict output.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether to print verbose logs.
+</ParamField>
+
+## Integration Patterns
+
+### Wrapping an LLM
+
+Add guardrails around a language model:
+
+<CodeGroup>
+```python Basic LLM Wrapping
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Create LLM
+llm = ChatOpenAI(model="gpt-3.5-turbo")
+
+# Load guardrails config
+config = RailsConfig.from_path("./config")
+
+# Wrap LLM with guardrails
+guarded_llm = RunnableRails(config, llm=llm)
+
+# Use it
+response = guarded_llm.invoke("Tell me about AI safety")
+print(response)
+```
+
+```python Using Pipe Operator
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+config = RailsConfig.from_path("./config")
+llm = ChatOpenAI(model="gpt-3.5-turbo")
+
+# Chain using pipe operator
+guarded_llm = RunnableRails(config) | llm
+
+response = guarded_llm.invoke("Hello!")
+```
+</CodeGroup>
+
+### Wrapping a Chain
+
+Add guardrails to an entire chain:
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema.output_parser import StrOutputParser
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Create a chain
+llm = ChatOpenAI()
+prompt = ChatPromptTemplate.from_template("Tell me about {topic}")
+chain = prompt | llm | StrOutputParser()
+
+# Load guardrails
+config = RailsConfig.from_path("./config")
+
+# Wrap the entire chain
+guarded_chain = RunnableRails(config, runnable=chain)
+
+# Use it
+result = guarded_chain.invoke({"topic": "quantum computing"})
+print(result)
+```
+
+### With LangChain Tools
+
+Register LangChain tools with guardrails:
+
+```python
+from langchain.agents import load_tools
+from langchain.tools import Tool
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Define custom tools
+def search_database(query: str) -> str:
+    """Search the company database."""
+    return f"Results for: {query}"
+
+def get_weather(location: str) -> str:
+    """Get weather for a location."""
+    return f"Weather in {location}: Sunny, 72°F"
+
+tools = [
+    Tool(
+        name="search_database",
+        func=search_database,
+        description="Search the company database"
+    ),
+    Tool(
+        name="get_weather",
+        func=get_weather,
+        description="Get current weather"
+    )
+]
+
+# Create guardrails with tools
+config = RailsConfig.from_path("./config")
+guardrails = RunnableRails(config, tools=tools)
+
+# Tools are now available in Colang flows
+result = guardrails.invoke("What's the weather in Seattle?")
+```
+
+### Chaining Multiple Guardrails
+
+Create pipelines with multiple guardrail layers:
+
+```python
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Load different guardrail configs
+input_rails_config = RailsConfig.from_path("./input_rails")
+output_rails_config = RailsConfig.from_path("./output_rails")
+
+llm = ChatOpenAI()
+
+# Chain: input rails -> LLM -> output rails
+chain = (
+    RunnableRails(input_rails_config) 
+    | llm 
+    | RunnableRails(output_rails_config)
+)
+
+result = chain.invoke("User input")
+```
+
+## Async Support
+
+RunnableRails fully supports async operations:
+
+```python
+import asyncio
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+async def main():
+    config = RailsConfig.from_path("./config")
+    llm = ChatOpenAI()
+    guardrails = RunnableRails(config, llm=llm)
+    
+    # Async invoke
+    result = await guardrails.ainvoke("Tell me about AI")
+    print(result)
+    
+    # Async batch
+    results = await guardrails.abatch([
+        "What is machine learning?",
+        "Explain neural networks",
+        "What is deep learning?"
+    ])
+    for r in results:
+        print(r)
+
+asyncio.run(main())
+```
+
+## Streaming
+
+Stream responses token-by-token:
+
+<CodeGroup>
+```python Async Streaming
+import asyncio
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+async def stream_example():
+    config = RailsConfig.from_path("./config")
+    llm = ChatOpenAI(streaming=True)
+    guardrails = RunnableRails(config, llm=llm)
+    
+    async for chunk in guardrails.astream("Tell me a story"):
+        print(chunk.content, end="", flush=True)
+    print()
+
+asyncio.run(stream_example())
+```
+
+```python Sync Streaming
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+config = RailsConfig.from_path("./config")
+llm = ChatOpenAI(streaming=True)
+guardrails = RunnableRails(config, llm=llm)
+
+for chunk in guardrails.stream("Tell me a joke"):
+    print(chunk.content, end="", flush=True)
+print()
+```
+</CodeGroup>
+
+<Warning>
+Streaming with output rails requires enabling streaming support:
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+</Warning>
+
+## Batch Processing
+
+Process multiple inputs efficiently:
+
+```python
+from langchain_openai import ChatOpenAI
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+config = RailsConfig.from_path("./config")
+llm = ChatOpenAI()
+guardrails = RunnableRails(config, llm=llm)
+
+inputs = [
+    "What is AI?",
+    "Explain machine learning",
+    "What is deep learning?"
+]
+
+# Synchronous batch
+results = guardrails.batch(inputs)
+for result in results:
+    print(result.content)
+
+# Async batch with concurrency control
+import asyncio
+
+async def batch_example():
+    results = await guardrails.abatch(
+        inputs,
+        config={"max_concurrency": 3}
+    )
+    for result in results:
+        print(result.content)
+
+asyncio.run(batch_example())
+```
+
+## Input/Output Formats
+
+RunnableRails supports various input and output formats:
+
+### String Input/Output
+
+```python
+config = RailsConfig.from_path("./config")
+guardrails = RunnableRails(config)
+
+# String in, string out
+result = guardrails.invoke("Hello!")
+print(result)  # String response
+```
+
+### Dict Input/Output
+
+```python
+config = RailsConfig.from_path("./config")
+guardrails = RunnableRails(
+    config,
+    input_key="question",
+    output_key="answer"
+)
+
+result = guardrails.invoke({"question": "What is AI?"})
+print(result["answer"])
+```
+
+### Message Objects
+
+```python
+from langchain.schema import HumanMessage, AIMessage
+
+config = RailsConfig.from_path("./config")
+guardrails = RunnableRails(config)
+
+# Message input
+message = HumanMessage(content="Hello!")
+result = guardrails.invoke(message)
+print(result.content)  # AIMessage response
+
+# List of messages
+messages = [
+    HumanMessage(content="Hi"),
+    AIMessage(content="Hello! How can I help?"),
+    HumanMessage(content="What is AI?")
+]
+result = guardrails.invoke(messages)
+```
+
+## Advanced Examples
+
+### RAG Chain with Guardrails
+
+```python
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema.runnable import RunnablePassthrough
+from langchain.schema.output_parser import StrOutputParser
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Create vector store
+embeddings = OpenAIEmbeddings()
+vectorstore = FAISS.from_texts(
+    ["AI is transforming industries", "Machine learning uses data"],
+    embeddings
+)
+retriever = vectorstore.as_retriever()
+
+# Create RAG chain
+llm = ChatOpenAI()
+prompt = ChatPromptTemplate.from_template(
+    "Answer based on context: {context}\n\nQuestion: {question}"
+)
+
+rag_chain = (
+    {"context": retriever, "question": RunnablePassthrough()}
+    | prompt
+    | llm
+    | StrOutputParser()
+)
+
+# Add guardrails
+config = RailsConfig.from_path("./config")
+guarded_rag = RunnableRails(config, runnable=rag_chain)
+
+result = guarded_rag.invoke("What is AI?")
+print(result)
+```
+
+### Agent with Guardrails
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.tools import Tool
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+
+# Define tools
+tools = [
+    Tool(
+        name="calculator",
+        func=lambda x: eval(x),
+        description="Calculate mathematical expressions"
+    )
+]
+
+# Create agent
+llm = ChatOpenAI()
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant"),
+    ("human", "{input}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
+])
+
+agent = create_openai_functions_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools)
+
+# Add guardrails to agent
+config = RailsConfig.from_path("./config")
+guarded_agent = RunnableRails(config, runnable=agent_executor)
+
+result = guarded_agent.invoke({"input": "What is 25 * 4?"})
+print(result["output"])
+```
+
+### Context Variables
+
+Pass context variables through the chain:
+
+```python
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+from langchain_openai import ChatOpenAI
+
+config = RailsConfig.from_path("./config")
+llm = ChatOpenAI()
+guardrails = RunnableRails(config, llm=llm)
+
+# Include context in the input
+result = guardrails.invoke({
+    "input": "What's my account status?",
+    "context": {
+        "user_id": "12345",
+        "account_type": "premium",
+        "user_name": "Alice"
+    }
+})
+
+print(result["output"])
+```
+
+## Error Handling
+
+```python
+from nemoguardrails import RailsConfig
+from nemoguardrails.integrations.langchain import RunnableRails
+from nemoguardrails.exceptions import InvalidRailsConfigurationError
+
+try:
+    config = RailsConfig.from_path("./config")
+    guardrails = RunnableRails(config)
+    
+    result = guardrails.invoke("Hello!")
+    print(result)
+    
+except InvalidRailsConfigurationError as e:
+    print(f"Configuration error: {e}")
+except ValueError as e:
+    print(f"Input error: {e}")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use async for production">
+    Async methods provide better performance and scalability:
+    ```python
+    result = await guardrails.ainvoke(input)
+    ```
+  </Step>
+  
+  <Step title="Enable streaming when needed">
+    For better user experience with long responses:
+    ```python
+    async for chunk in guardrails.astream(input):
+        # Process chunk
+    ```
+  </Step>
+  
+  <Step title="Configure concurrency for batch">
+    Control resource usage in batch operations:
+    ```python
+    results = await guardrails.abatch(
+        inputs,
+        config={"max_concurrency": 5}
+    )
+    ```
+  </Step>
+  
+  <Step title="Use appropriate input/output keys">
+    Match your chain's expected format:
+    ```python
+    guardrails = RunnableRails(
+        config,
+        input_key="question",
+        output_key="answer"
+    )
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Input Format Errors
+
+If you get input format errors, verify the expected format:
+
+```python
+# For dict input, ensure the key matches
+guardrails = RunnableRails(config, input_key="query")
+result = guardrails.invoke({"query": "text"})  # Must use 'query'
+```
+
+### Streaming Not Working
+
+Enable streaming in both the LLM and config:
+
+```python
+llm = ChatOpenAI(streaming=True)
+guardrails = RunnableRails(config, llm=llm)
+```
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+
+### Tool Registration Issues
+
+Ensure tools are registered before use:
+
+```python
+# Register tools during initialization
+guardrails = RunnableRails(config, tools=tools)
+
+# Or register manually
+for tool in tools:
+    guardrails.rails.register_action(tool, tool.name)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="code" href="/usage/python-api">
+    Core Python API reference
+  </Card>
+  <Card title="Server Guide" icon="server" href="/usage/server">
+    Deploy as a REST API server
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/rails-definition">
+    Configure your guardrails
+  </Card>
+  <Card title="Examples" icon="book" href="/examples/basic-rag">
+    More integration examples
+  </Card>
+</CardGroup>

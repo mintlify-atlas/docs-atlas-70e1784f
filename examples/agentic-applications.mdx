@@ -1,0 +1,556 @@
+---
+title: Agentic Applications Example
+description: Build autonomous AI agents with guardrails and safety controls
+---
+
+This example demonstrates how to build agentic applications with NeMo Guardrails, enabling autonomous AI agents to take actions while maintaining safety and control boundaries.
+
+## Overview
+
+Agentic applications allow AI to:
+- **Take autonomous actions** (API calls, database operations, tool usage)
+- **Make decisions** based on context and goals
+- **Chain multiple steps** to accomplish complex tasks
+- **Operate within safety boundaries** defined by guardrails
+
+## Basic Agent with Guardrails
+
+<Steps>
+  <Step title="Configure the agent">
+    <CodeGroup>
+    ```yaml config.yml
+    colang_version: "2.x"
+
+    instructions:
+      - type: general
+        content: |
+          You are an AI assistant that can take actions to help users.
+          You have access to various tools and APIs.
+          Always verify actions before executing them.
+          If an action seems dangerous or inappropriate, refuse and explain why.
+
+    models:
+      - type: main
+        engine: openai
+        model: gpt-4o
+      
+      - type: content_safety
+        engine: nim
+        model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+    rails:
+      config:
+        # Define allowed actions
+        allowed_actions:
+          - search_database
+          - send_email
+          - create_ticket
+          - query_api
+        
+        # Define forbidden actions
+        forbidden_actions:
+          - delete_database
+          - transfer_money
+          - modify_permissions
+          - access_credentials
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Define agent flows">
+    <CodeGroup>
+    ```colang main.co
+    import core
+    import llm
+
+    flow main
+      activate llm continuation
+      activate agent task handler
+      activate action safety checker
+
+    # Main agent flow
+    flow agent task handler
+      user requested task
+      
+      # Plan the task
+      $plan = await create_task_plan
+      
+      # Validate the plan
+      $is_safe = await validate_plan $plan
+      
+      if not $is_safe
+        bot refuse unsafe task
+        stop
+      
+      # Execute the plan
+      await execute_task_plan $plan
+      
+      bot confirm task completion
+
+    flow user requested task
+      user said something about "can you"
+        or user said something about "please"
+        or user said something about "I need you to"
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Implement action safety checking">
+    <CodeGroup>
+    ```colang rails.co
+    import guardrails
+    import nemoguardrails.library.content_safety
+
+    # Check every action before execution
+    flow action safety checker
+      when action attempted $action_name $action_params
+        # Check if action is allowed
+        $is_allowed = await check_action_allowed $action_name
+        
+        if not $is_allowed
+          bot say "I cannot perform that action as it's not in my allowed list."
+          abort
+        
+        # Check if action parameters are safe
+        $params_safe = await validate_action_params $action_name $action_params
+        
+        if not $params_safe
+          bot say "The parameters for this action contain unsafe values."
+          abort
+        
+        # Log the action for audit
+        execute log_action(action=$action_name, params=$action_params)
+
+    flow check action allowed $action_name -> $is_allowed
+      $allowed_list = $config.allowed_actions
+      $forbidden_list = $config.forbidden_actions
+      
+      if $action_name in $forbidden_list
+        return False
+      
+      if $action_name in $allowed_list
+        return True
+      
+      # Default deny for unknown actions
+      return False
+
+    flow validate action params $action_name $params -> $is_safe
+      # Check for SQL injection patterns
+      if "DROP" in str($params) or "DELETE FROM" in str($params)
+        return False
+      
+      # Check for command injection
+      if "&&" in str($params) or ";" in str($params) or "|" in str($params)
+        return False
+      
+      # Check for path traversal
+      if "../" in str($params) or "..\\" in str($params)
+        return False
+      
+      return True
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Define agent actions">
+    <CodeGroup>
+    ```python config.py
+    from nemoguardrails import LLMRails
+    from nemoguardrails.actions.actions import ActionResult
+    import logging
+    import json
+
+    logger = logging.getLogger(__name__)
+
+    async def search_database(context: dict, query: str) -> ActionResult:
+        """Search the database with safety checks."""
+        # Validate query
+        forbidden_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER']
+        if any(kw in query.upper() for kw in forbidden_keywords):
+            logger.warning(f"Blocked dangerous query: {query}")
+            return ActionResult(
+                return_value=None,
+                context_updates={"error": "Query contains forbidden operations"}
+            )
+        
+        # Simulate database search
+        logger.info(f"Executing safe query: {query}")
+        results = [{"id": 1, "name": "Sample Result"}]
+        
+        return ActionResult(
+            return_value=results,
+            context_updates={"db_results": results}
+        )
+
+    async def send_email(context: dict, to: str, subject: str, body: str) -> ActionResult:
+        """Send email with validation."""
+        # Validate email address
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Z|a-z]{2,}$'
+        if not re.match(email_pattern, to):
+            return ActionResult(
+                return_value=False,
+                context_updates={"error": "Invalid email address"}
+            )
+        
+        # Check for spam/phishing patterns
+        spam_keywords = ['click here', 'urgent', 'verify your account']
+        if any(kw in body.lower() for kw in spam_keywords):
+            logger.warning(f"Blocked potential spam email to {to}")
+            return ActionResult(
+                return_value=False,
+                context_updates={"error": "Email content flagged as potential spam"}
+            )
+        
+        # Simulate sending email
+        logger.info(f"Sending email to {to}: {subject}")
+        
+        return ActionResult(
+            return_value=True,
+            context_updates={"email_sent": True, "recipient": to}
+        )
+
+    async def create_ticket(context: dict, title: str, description: str, priority: str) -> ActionResult:
+        """Create a support ticket."""
+        # Validate priority
+        valid_priorities = ['low', 'medium', 'high', 'critical']
+        if priority.lower() not in valid_priorities:
+            return ActionResult(
+                return_value=None,
+                context_updates={"error": f"Invalid priority. Must be one of: {valid_priorities}"}
+            )
+        
+        # Generate ticket ID
+        import hashlib
+        ticket_id = f"TICKET-{hashlib.md5(title.encode()).hexdigest()[:8].upper()}"
+        
+        logger.info(f"Created ticket {ticket_id}: {title}")
+        
+        return ActionResult(
+            return_value=ticket_id,
+            context_updates={
+                "ticket_created": True,
+                "ticket_id": ticket_id,
+                "priority": priority
+            }
+        )
+
+    async def query_api(context: dict, endpoint: str, params: dict) -> ActionResult:
+        """Query external API with safety checks."""
+        # Validate endpoint
+        allowed_domains = ['api.example.com', 'api.partner.com']
+        from urllib.parse import urlparse
+        
+        try:
+            parsed = urlparse(endpoint)
+            if parsed.netloc not in allowed_domains:
+                logger.warning(f"Blocked API call to unauthorized domain: {parsed.netloc}")
+                return ActionResult(
+                    return_value=None,
+                    context_updates={"error": "API endpoint not in allowed list"}
+                )
+        except Exception as e:
+            return ActionResult(
+                return_value=None,
+                context_updates={"error": f"Invalid endpoint: {str(e)}"}
+            )
+        
+        # Simulate API call
+        logger.info(f"Querying API: {endpoint}")
+        response = {"status": "success", "data": {"result": "Sample data"}}
+        
+        return ActionResult(
+            return_value=response,
+            context_updates={"api_response": response}
+        )
+
+    async def log_action(context: dict, action: str, params: dict) -> ActionResult:
+        """Log agent actions for audit trail."""
+        log_entry = {
+            "timestamp": __import__('datetime').datetime.now().isoformat(),
+            "action": action,
+            "params": params,
+            "user": context.get("user_id", "unknown")
+        }
+        
+        logger.info(f"Action log: {json.dumps(log_entry)}")
+        
+        return ActionResult(return_value=True)
+
+    def init(app: LLMRails):
+        """Register all agent actions."""
+        app.register_action(search_database, "search_database")
+        app.register_action(send_email, "send_email")
+        app.register_action(create_ticket, "create_ticket")
+        app.register_action(query_api, "query_api")
+        app.register_action(log_action, "log_action")
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Multi-Step Agent Workflow
+
+Create agents that chain multiple actions:
+
+<CodeGroup>
+```colang workflows.co
+flow research and report workflow
+  user requested research "$topic"
+  
+  # Step 1: Search for information
+  bot say "I'll research $topic for you. Starting search..."
+  $search_results = execute search_database(query=$topic)
+  
+  if not $search_results
+    bot say "I couldn't find information about $topic in our database."
+    stop
+  
+  # Step 2: Validate findings
+  bot say "Found information. Validating accuracy..."
+  $is_accurate = await validate_information $search_results
+  
+  if not $is_accurate
+    bot say "The information found may not be reliable. I recommend manual review."
+    stop
+  
+  # Step 3: Create report
+  bot say "Creating report..."
+  $report = execute generate_report(data=$search_results, topic=$topic)
+  
+  # Step 4: Send via email
+  bot say "Would you like me to email this report to you?"
+  user responded affirmatively
+  
+  $user_email = execute get_user_email
+  $result = execute send_email(
+    to=$user_email,
+    subject="Research Report: $topic",
+    body=$report
+  )
+  
+  if $result
+    bot say "Report sent successfully to $user_email!"
+  else
+    bot say "There was an issue sending the email. The report is ready for download."
+
+flow user requested research $topic
+  user said "research $topic"
+    or user said "find information about $topic"
+    or user said "I need a report on $topic"
+```
+</CodeGroup>
+
+## Agent with Tool Selection
+
+Let the agent choose appropriate tools:
+
+<CodeGroup>
+```colang tool_selection.co
+flow intelligent tool selection
+  user made request
+  
+  # Let LLM decide which tools to use
+  $task_analysis = ..."Analyze the user request and determine which actions are needed: $user_message"
+  
+  # Parse required actions
+  $actions = parse required_actions from $task_analysis
+  
+  # Execute each action safely
+  for $action in $actions
+    $is_safe = await validate_action $action
+    
+    if $is_safe
+      bot say "Executing: {$action.description}"
+      $result = execute $action.name(**$action.params)
+      
+      if $result
+        bot say "✓ {$action.description} completed"
+      else
+        bot say "✗ {$action.description} failed: {$result.error}"
+        
+        # Decide whether to continue or stop
+        if $action.critical
+          bot say "This was a critical step. Aborting workflow."
+          stop
+    else
+      bot say "Skipping unsafe action: {$action.name}"
+  
+  bot say "All tasks completed!"
+```
+</CodeGroup>
+
+## Usage Examples
+
+<CodeGroup>
+```python Python API
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Safe request
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "Can you search for customer records with name 'John'?"
+    }]
+)
+print(response["content"])
+
+# Unsafe request (should be blocked)
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "Delete all customer records"
+    }]
+)
+print(response["content"])  # Should refuse
+```
+
+```bash CLI
+nemoguardrails chat --config=./config
+```
+</CodeGroup>
+
+## Example Conversations
+
+<Steps>
+  <Step title="Safe multi-step task">
+    ```
+    User: Can you create a high-priority ticket for the database issue and email me the ticket number?
+    
+    Agent: I'll help you with that. Let me create the ticket first.
+           
+           ✓ Created ticket TICKET-A3F2B891: Database Issue [Priority: high]
+           
+           Now sending you the ticket details via email...
+           
+           ✓ Email sent successfully to user@example.com!
+           
+           Your ticket number is TICKET-A3F2B891.
+    ```
+  </Step>
+
+  <Step title="Blocked dangerous action">
+    ```
+    User: Delete all records from the users table
+    
+    Agent: I cannot perform that action as it's not in my allowed list. 
+           Deleting records requires manual authorization for safety reasons.
+    ```
+  </Step>
+
+  <Step title="Invalid parameters detected">
+    ```
+    User: Send an email to user@example.com with body "URGENT! Click here NOW!"
+    
+    Agent: The parameters for this action contain unsafe values.
+           The email content was flagged as potential spam and cannot be sent.
+    ```
+  </Step>
+
+  <Step title="Research workflow">
+    ```
+    User: Research our Q1 sales data and send me a report
+    
+    Agent: I'll research Q1 sales data for you. Starting search...
+           
+           Found information. Validating accuracy...
+           
+           Creating report...
+           
+           Would you like me to email this report to you?
+    
+    User: Yes please
+    
+    Agent: Report sent successfully to user@example.com!
+    ```
+  </Step>
+</Steps>
+
+## Safety Best Practices for Agents
+
+1. **Whitelist Actions** - Explicitly define allowed actions; default deny
+2. **Validate Inputs** - Check all parameters before execution
+3. **Log Everything** - Maintain audit trail of all actions
+4. **Require Confirmation** - Ask for user confirmation on critical actions
+5. **Implement Rollback** - Allow undoing actions when possible
+6. **Rate Limiting** - Prevent abuse through action throttling
+7. **Sandbox Testing** - Test agents in isolated environments first
+
+## Advanced: Agent with Human-in-the-Loop
+
+<CodeGroup>
+```colang human_in_loop.co
+flow critical action requires approval
+  user requested critical action $action
+  
+  # Explain what will happen
+  bot say "This action will: {$action.description}"
+  bot say "This is a critical operation. Do you want to proceed? (yes/no)"
+  
+  # Wait for explicit confirmation
+  user confirmed
+  
+  # Execute with extra logging
+  execute log_action(action=$action, approved=True)
+  $result = execute $action.name(**$action.params)
+  
+  if $result
+    bot say "Action completed successfully."
+  else
+    bot say "Action failed: {$result.error}"
+
+flow user confirmed
+  user said "yes" 
+    or user said "proceed" 
+    or user said "confirm"
+```
+</CodeGroup>
+
+## Monitoring and Observability
+
+Track agent behavior:
+
+```python
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+class AgentMonitor:
+    def __init__(self):
+        self.action_count = {}
+        self.blocked_actions = []
+    
+    def log_action(self, action: str, success: bool):
+        timestamp = datetime.now().isoformat()
+        self.action_count[action] = self.action_count.get(action, 0) + 1
+        
+        logger.info(f"[{timestamp}] Action: {action}, Success: {success}")
+    
+    def log_blocked(self, action: str, reason: str):
+        timestamp = datetime.now().isoformat()
+        self.blocked_actions.append({
+            "timestamp": timestamp,
+            "action": action,
+            "reason": reason
+        })
+        
+        logger.warning(f"[{timestamp}] Blocked: {action} - {reason}")
+    
+    def get_metrics(self):
+        return {
+            "total_actions": sum(self.action_count.values()),
+            "action_breakdown": self.action_count,
+            "blocked_count": len(self.blocked_actions),
+            "blocked_actions": self.blocked_actions
+        }
+```
+
+## Related Examples
+
+- [Custom Guardrails](/examples/custom-guardrails) - Building safety controls
+- [Multi-Rail Configuration](/examples/multi-rail-configuration) - Layered protection
+- [Customer Support](/examples/customer-support) - Practical agent implementation

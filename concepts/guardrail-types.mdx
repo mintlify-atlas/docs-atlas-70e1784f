@@ -1,0 +1,361 @@
+---
+title: Guardrail Types
+description: Understanding the five types of rails and when to apply them
+---
+
+# Guardrail Types
+
+NeMo Guardrails applies guardrails at multiple stages of the LLM interaction pipeline. Each rail type serves a specific purpose and operates at a distinct point in the conversation flow.
+
+<Frame>
+  <img src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/programmable_guardrails_flow.png" alt="Programmable Guardrails Flow" />
+</Frame>
+
+## Overview of Rail Types
+
+The five main types of guardrails are:
+
+| Stage | Rail Type | Common Use Cases |
+|-------|-----------|------------------|
+| **Before LLM** | Input rails | Content safety, jailbreak detection, topic control, PII masking |
+| **RAG pipeline** | Retrieval rails | Document filtering, chunk validation |
+| **Conversation** | Dialog rails | Flow control, guided conversations |
+| **Tool calls** | Execution rails | Action input/output validation |
+| **After LLM** | Output rails | Response filtering, fact checking, sensitive data removal |
+
+<Note>
+  Input and Output rails are the most commonly used types. Start with these before implementing more advanced rail types.
+</Note>
+
+## 1. Input Rails
+
+Input rails are applied to user input **before** the LLM is invoked. They can validate, reject, or transform user messages.
+
+### Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Jailbreak Detection" icon="user-lock">
+    Detect and block attempts to bypass safety measures or manipulate the LLM into harmful behavior.
+  </Card>
+  
+  <Card title="Content Safety" icon="shield-check">
+    Check user inputs for harmful, offensive, or inappropriate content before processing.
+  </Card>
+  
+  <Card title="PII Masking" icon="mask">
+    Detect and mask personally identifiable information like emails, phone numbers, or SSNs.
+  </Card>
+  
+  <Card title="Topic Control" icon="filter">
+    Ensure user requests stay within allowed topic boundaries.
+  </Card>
+</CardGroup>
+
+### Configuration Example
+
+```yaml
+rails:
+  input:
+    flows:
+      - check jailbreak
+      - mask sensitive data on input
+      - check input toxicity
+```
+
+### Colang Example
+
+```colang
+define user ask about politics
+  "What do you think about the government?"
+  "Which party should I vote for?"
+
+define flow politics input rail
+  user ask about politics
+  bot refuse to respond
+  stop
+```
+
+<Warning>
+  Input rails can **reject** the entire request by calling `stop`, preventing any further processing.
+</Warning>
+
+## 2. Retrieval Rails
+
+Retrieval rails operate in **RAG (Retrieval Augmented Generation)** scenarios, filtering and validating retrieved chunks before they're used to prompt the LLM.
+
+### Use Cases
+
+- **Chunk Relevance**: Ensure retrieved documents are actually relevant to the query
+- **PII Detection**: Mask or remove sensitive data from retrieved content
+- **Source Validation**: Verify chunks come from trusted sources
+- **Content Filtering**: Remove inappropriate or outdated information
+
+### Configuration Example
+
+```yaml
+rails:
+  retrieval:
+    flows:
+      - check retrieval relevance
+      - mask pii in chunks
+```
+
+### Custom Retrieval Action
+
+```python
+# actions.py
+from typing import Optional
+
+async def check_retrieval_relevance(
+    context: Optional[dict] = None
+) -> bool:
+    """Filter out irrelevant retrieved chunks."""
+    relevant_chunks = context.get("relevant_chunks", [])
+    
+    # Filter chunks with low relevance scores
+    filtered_chunks = [
+        chunk for chunk in relevant_chunks 
+        if chunk.get("score", 0) > 0.7
+    ]
+    
+    context["relevant_chunks"] = filtered_chunks
+    return True
+```
+
+## 3. Dialog Rails
+
+Dialog rails influence **how the conversation flows** by operating on canonical form messages. They determine if an action should execute, if the LLM should generate the next step, or if a predefined response should be used.
+
+### Use Cases
+
+<Tabs>
+  <Tab title="Conversational Flows">
+    Define specific paths the conversation should follow:
+    
+    ```colang
+    define flow greeting
+      user express greeting
+      bot express greeting
+      bot ask how are you
+      
+      when user express feeling good
+        bot express positive emotion
+      else when user express feeling bad
+        bot express empathy
+    ```
+  </Tab>
+  
+  <Tab title="Topic Restrictions">
+    Control which topics the bot can discuss:
+    
+    ```colang
+    define user ask about stock market
+      "Which stock should I invest in?"
+      "Would this stock 10x over the next year?"
+    
+    define flow stock market
+      user ask about stock market
+      bot refuse to respond
+    ```
+  </Tab>
+  
+  <Tab title="Authentication Flows">
+    Enforce authentication before sensitive operations:
+    
+    ```colang
+    define flow check authentication
+      user request sensitive information
+      if not $user_authenticated
+        bot ask for credentials
+        bot perform authentication
+      bot provide sensitive information
+    ```
+  </Tab>
+</Tabs>
+
+### Configuration Example
+
+```yaml
+rails:
+  dialog:
+    flows:
+      - enforce greeting flow
+      - check topic boundaries
+```
+
+## 4. Execution Rails
+
+Execution rails are applied to **tool/action calls**, validating both the input parameters and the output results before they're used in the conversation.
+
+### Use Cases
+
+- **Input Validation**: Ensure action parameters are safe and well-formed
+- **Output Sanitization**: Filter sensitive data from action results
+- **Authorization**: Verify the user has permission to execute the action
+- **Rate Limiting**: Control how often certain actions can be called
+
+### Configuration Example
+
+```yaml
+rails:
+  execution:
+    flows:
+      - validate action inputs
+      - sanitize action outputs
+```
+
+### Example: Database Query Validation
+
+```python
+# actions.py
+import re
+from nemoguardrails.actions import action
+
+@action(name="execute_sql_query")
+async def execute_sql_query(query: str, context: dict = None):
+    """Execute SQL query with validation."""
+    
+    # Input rail: validate query is read-only
+    dangerous_keywords = ["DROP", "DELETE", "UPDATE", "INSERT"]
+    if any(keyword in query.upper() for keyword in dangerous_keywords):
+        raise ValueError("Only SELECT queries are allowed")
+    
+    # Execute query (simplified)
+    results = await run_query(query)
+    
+    # Output rail: remove sensitive columns
+    filtered_results = remove_sensitive_columns(results)
+    
+    return filtered_results
+```
+
+<Warning>
+  **Security Best Practice**: Always isolate authentication information from the LLM. Never pass credentials as action parameters that the LLM might see.
+</Warning>
+
+## 5. Output Rails
+
+Output rails are applied to the **LLM-generated response** before it's returned to the user. They can reject, modify, or enhance the output.
+
+### Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Fact Checking" icon="magnifying-glass-chart">
+    Verify factual claims in the response against trusted sources.
+  </Card>
+  
+  <Card title="Hallucination Detection" icon="eye">
+    Detect when the LLM generates information not grounded in context.
+  </Card>
+  
+  <Card title="Content Moderation" icon="filter">
+    Check for harmful, biased, or inappropriate content in responses.
+  </Card>
+  
+  <Card title="PII Removal" icon="user-shield">
+    Strip any accidentally generated personal information.
+  </Card>
+</CardGroup>
+
+### Configuration Example
+
+```yaml
+rails:
+  output:
+    flows:
+      - self check facts
+      - self check hallucination
+      - check output toxicity
+      - remove pii from output
+```
+
+### Colang Example
+
+```colang
+define flow output moderation
+  bot ...
+  $allowed = execute output_moderation_check
+  
+  if not $allowed
+    bot inform cannot answer
+    stop
+```
+
+## Use Case Matrix
+
+Different use cases benefit from different combinations of rail types:
+
+| Use Case | Input | Retrieval | Dialog | Execution | Output |
+|----------|:-----:|:---------:|:------:|:---------:|:------:|
+| **Content Safety** | ✅ | | | | ✅ |
+| **Jailbreak Protection** | ✅ | | | | |
+| **Topic Control** | ✅ | | ✅ | | |
+| **PII Detection** | ✅ | ✅ | | | ✅ |
+| **Knowledge Base / RAG** | | ✅ | | | ✅ |
+| **Agentic Security** | | | | ✅ | |
+| **Custom Rails** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+## Combining Multiple Rails
+
+Rails of different types work together to provide comprehensive protection:
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  # Stage 1: Validate user input
+  input:
+    flows:
+      - check jailbreak
+      - mask sensitive data on input
+  
+  # Stage 2: Filter retrieved content (RAG)
+  retrieval:
+    flows:
+      - check retrieval relevance
+  
+  # Stage 3: Guide conversation flow
+  dialog:
+    flows:
+      - enforce topic boundaries
+  
+  # Stage 4: Validate tool execution
+  execution:
+    flows:
+      - validate action inputs
+  
+  # Stage 5: Check output quality
+  output:
+    flows:
+      - self check facts
+      - check output toxicity
+```
+
+## Rail Execution Order
+
+Rails are executed in this order for each conversation turn:
+
+1. **Input rails** → Process user message
+2. **Dialog rails** → Determine conversation flow
+3. **Retrieval rails** → Filter RAG chunks (if applicable)
+4. **Execution rails** → Validate tool calls (if applicable)
+5. **Output rails** → Validate bot response
+
+<Note>
+  Any rail can call `stop` to halt processing immediately. This is useful for rejecting inappropriate requests or responses.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Colang DSL" icon="code" href="/concepts/colang">
+    Learn how to write rail definitions using Colang
+  </Card>
+  
+  <Card title="Guardrails Library" icon="book" href="/guardrails/overview">
+    Explore pre-built guardrails you can use immediately
+  </Card>
+</CardGroup>

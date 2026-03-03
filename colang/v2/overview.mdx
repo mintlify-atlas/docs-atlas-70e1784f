@@ -1,0 +1,271 @@
+---
+title: Colang 2.0 Overview
+description: Overview of Colang 2.0, the next-generation event-driven language for conversational guardrails
+---
+
+# Colang 2.0 Overview
+
+Colang 2.0 represents a complete overhaul of both the language and runtime, introducing powerful new features while maintaining the event-driven interaction model.
+
+## Version Timeline
+
+Colang 2.0 was introduced in NeMo Guardrails version 0.8 and has evolved through two phases:
+
+| NeMo Guardrails Version | Colang Version | Status |
+|------------------------|----------------|--------|
+| 0.1 - 0.7              | 1.0            | Stable |
+| 0.8                    | 2.0-alpha      | Legacy |
+| >= 0.9                 | 2.0-beta       | Current |
+
+<Note>
+Colang 1.0 remains the default until Colang 2.0 completes its beta phase. You must explicitly enable Colang 2.0 in your configuration.
+</Note>
+
+## What's New in 2.0
+
+### Colang 2.0-alpha Features
+
+Key enhancements include:
+
+- **More powerful flows engine**: Supports multiple parallel flows and advanced pattern matching over event streams
+- **Standard library**: Simplifies bot development with pre-built flows
+- **Smaller set of core abstractions**: Flows, events, and actions
+- **Explicit entry point**: Through the `main` flow with explicit activation
+- **Asynchronous actions**: Non-blocking action execution
+- **Python-like syntax**: Reduced learning curve for developers
+
+### Colang 2.0-beta Additions
+
+- **Import mechanism**: For the standard library to streamline development
+- **Generation operator** (`...`): Dynamic runtime generation using LLMs
+- **Standalone and flow parameter expression evaluation**: More flexible parameter handling
+
+### Current Limitations
+
+<Warning>
+The following limitations will be addressed in future releases:
+- Guardrails Library is not yet fully usable from within Colang 2.0
+- Some generation options not supported (e.g., log activated rails)
+</Warning>
+
+## Major Changes from 1.0
+
+### Terminology
+
+To reduce the learning curve, Colang 2.0 borrows terminology from Python:
+
+- Every bit of Colang code is called a **script**
+- A single `.co` file is called a **module**
+- A folder of Colang files is called a **package**
+- Modules and packages can be imported
+
+### Syntax Changes
+
+**Removed keywords**:
+- `define` - No longer needed
+- `execute` - Replaced with `await`
+
+**New keywords**:
+- `flow` - Define flows (replaces `define flow`)
+- `match` - Match events
+- `send` - Send events
+- `start` - Start flows/actions without waiting
+- `await` - Start and wait for completion
+- `activate` - Activate flows to run in background
+
+**Other changes**:
+- Support for decorators (e.g., `@active`)
+- `when`/`or when` instead of `when`/`else when`
+- Dropped subflows (use regular flows instead)
+
+### Defining User and Bot Intents
+
+The special `define user ...` and `define bot ...` syntax is no longer supported.
+
+**Colang 1.0**:
+```colang
+define user express greeting
+  "hi"
+  "hello"
+
+define bot express greeting
+  "Hello there!"
+```
+
+**Colang 2.0**:
+```colang
+flow user expressed greeting
+  user said "hi" or user said "hello"
+
+flow bot express greeting
+  bot say "Hello world!"
+    or bot say "Hi there!"
+```
+
+This new syntax is more explicit and allows mixing different event types and modalities (e.g., `user gesture "wave"`).
+
+### Flow Naming Conventions
+
+Colang 2.0 adopts specific naming conventions:
+
+- **User flows** (events from outside): Use **past tense** (e.g., `user said`, `user expressed greeting`)
+- **Bot flows** (actions to take): Use **imperative form** (e.g., `bot say`, `bot express greeting`, `bot refuse to respond`)
+
+This makes the code more readable and intention clear.
+
+### The Generation Operator
+
+Colang 2.0 introduces the `...` operator for dynamic generation at runtime, typically using an LLM:
+
+```colang
+flow check user utterance $input_text -> $input_safe
+  $is_safe = ..."Consider the following user utterance: '{$input_text}'. Assign 'True' if appropriate, 'False' if inappropriate."
+  return $is_safe
+```
+
+The `...` operator enables natural language flows where the docstring generates the content dynamically.
+
+### Active Flows and Entry Point
+
+**Colang 1.0**: All flows are active by default, no clear entry point.
+
+**Colang 2.0**: 
+- The `main` flow is the entry point
+- Flows must be activated explicitly
+- Use `activate` to enable flows
+
+```colang
+import core
+import llm
+
+flow main
+  activate llm continuation
+  activate greeting
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+```
+
+### Import Mechanism
+
+Colang 2.0 adds Python-like imports:
+
+```colang
+import core
+import llm
+import guardrails
+```
+
+Any module or package in `COLANGPATH` can be imported. Currently, Colang 2.0 only supports module/package-level imports (not individual flows).
+
+## Standard Library
+
+Colang 2.0 includes a comprehensive standard library:
+
+- **`core`**: Core flows for user and bot utterances (e.g., `user said`, `bot say`)
+- **`llm`**: Flows for LLM-driven interactions
+- **`timing`**: Time-dependent flows (e.g., `wait`, `user was silent $time_s`)
+- **`guardrails`**: Support for adding guardrails (input/output checking)
+- **`avatars`**: Support for controlling interactive avatars
+- **`utils`**: Utility flows
+
+## Event-Driven Interaction Model
+
+The core event-driven model remains consistent between Colang 1.0 and 2.0:
+
+- **User saying something** generates events
+- **LLM generating a response** creates events
+- **Triggering an action** produces events
+- **Action results** are events
+- **Guardrail triggers** are events
+
+The system's evolution is modeled as a series of events, with the guardrails layer recognizing and enforcing patterns within the stream.
+
+```
+[User Input] → [Event Stream] → [Guardrails Layer] → [LLM] → [Event Stream] → [Bot Output]
+                     ↓                                           ↓
+                [Pattern Matching]                         [Response Generation]
+```
+
+This event-driven model makes Colang powerful for modeling any type of interaction: text-based, voice-based, multi-modal, agent, or multi-agent systems.
+
+## Runtime Improvements
+
+Colang 2.0's runtime addresses Colang 1.0 limitations:
+
+**Colang 1.0 limitations**:
+- No explicit state object
+- Performance degrades with many events
+- No support for parallel flows
+
+**Colang 2.0 improvements**:
+- Explicit state management
+- Better performance with large event streams
+- Native support for parallel flows
+- Advanced pattern matching
+- Asynchronous action execution
+
+## Use Cases
+
+Colang 2.0 excels at:
+
+1. **Multi-modal interactions**: Voice, gestures, posture, images
+2. **Interactive avatars**: Coordinating speech, gestures, and expressions
+3. **Complex agents**: Multiple concurrent action streams
+4. **Real-time systems**: Efficient event processing
+5. **Natural language workflows**: Using the `...` operator for LLM generation
+
+## Migration Path
+
+If you have existing Colang 1.0 configurations, you can migrate using the CLI tool:
+
+```bash
+nemoguardrails convert "path/to/config" --from-version "1.0"
+```
+
+Migrating from 2.0-alpha to 2.0-beta:
+
+```bash
+nemoguardrails convert "path/to/config" --from-version "2.0-alpha"
+```
+
+Add `--validate` to check for syntax errors after migration.
+
+<Warning>
+The migration tool handles most cases but may miss edge cases. Always manually review configurations after conversion.
+</Warning>
+
+## When to Use Colang 2.0
+
+Choose Colang 2.0 when you need:
+
+- ✅ Parallel flows and concurrent actions
+- ✅ Multi-modal interactions
+- ✅ Better performance with many events
+- ✅ Natural language generation with `...`
+- ✅ Modern Python-like syntax
+- ✅ Standard library flows
+
+Stick with Colang 1.0 if:
+
+- ✅ You have existing 1.0 configurations working well
+- ✅ You need fully stable, production-tested features
+- ✅ Your use case is simple text-based guardrails
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="rocket" href="/colang/v2/getting-started">
+    Build your first Colang 2.0 bot
+  </Card>
+  <Card title="Language Reference" icon="book" href="/colang/v2/language-reference">
+    Complete syntax and feature reference
+  </Card>
+  <Card title="Migration Guide" icon="arrow-right" href="/colang/v2/migration">
+    Migrate from Colang 1.0 to 2.0
+  </Card>
+  <Card title="v1 Introduction" icon="arrow-left" href="/colang/v1/introduction">
+    Learn about Colang 1.0
+  </Card>
+</CardGroup>

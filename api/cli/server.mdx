@@ -1,0 +1,349 @@
+---
+title: nemoguardrails server
+description: Start a NeMo Guardrails server
+---
+
+## Command
+
+```bash
+nemoguardrails server [OPTIONS]
+```
+
+Start a NeMo Guardrails server that provides an OpenAI-compatible API with guardrails.
+
+## Options
+
+<ParamField path="--port" type="integer" default="8000">
+  The port that the server should listen on.
+</ParamField>
+
+<ParamField path="--config" type="path">
+  Path to a directory containing multiple configuration sub-folders (multi-config mode) or a single configuration directory (single-config mode).
+  
+  If not specified, looks for a `config` folder in the current directory.
+</ParamField>
+
+<ParamField path="--default-config-id" type="string">
+  The default configuration ID to use when no config is specified in requests.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  If the server should be verbose and output detailed logs including prompts.
+</ParamField>
+
+<ParamField path="--disable-chat-ui" type="boolean" default="false">
+  Whether the Chat UI should be disabled. When enabled (default), the UI is accessible at `http://localhost:<port>/`.
+</ParamField>
+
+<ParamField path="--auto-reload" type="boolean" default="false">
+  Enable automatic reloading when configuration files change. Requires the `watchdog` package.
+</ParamField>
+
+<ParamField path="--prefix" type="string" default="">
+  A prefix that should be added to all server paths. Must start with '/'. Useful for deploying behind a reverse proxy.
+</ParamField>
+
+## Examples
+
+### Basic Usage
+
+Start server with default settings:
+
+```bash
+nemoguardrails server
+```
+
+This looks for a `config` directory in the current folder.
+
+### Specify Config Directory
+
+Start server with a specific config directory:
+
+```bash
+nemoguardrails server --config=./my-configs
+```
+
+### Multi-Config Mode
+
+Serve multiple guardrails configurations:
+
+```bash
+nemoguardrails server --config=./configs
+```
+
+Directory structure:
+```
+configs/
+├── chatbot/
+│   ├── config.yml
+│   └── rails.co
+├── moderation/
+│   ├── config.yml
+│   └── rails.co
+└── content-safety/
+    ├── config.yml
+    └── rails.co
+```
+
+### Single-Config Mode
+
+Serve a single configuration:
+
+```bash
+nemoguardrails server --config=./my-bot
+```
+
+Directory structure:
+```
+my-bot/
+├── config.yml
+├── rails.co
+└── actions.py
+```
+
+### Custom Port
+
+Start server on a different port:
+
+```bash
+nemoguardrails server --port=9000
+```
+
+### Verbose Mode
+
+Enable detailed logging:
+
+```bash
+nemoguardrails server --config=./configs --verbose
+```
+
+### Auto-Reload
+
+Automatically reload configs when files change:
+
+```bash
+nemoguardrails server --config=./configs --auto-reload
+```
+
+Requires `watchdog`:
+```bash
+pip install watchdog
+```
+
+### Disable Chat UI
+
+Disable the built-in web interface:
+
+```bash
+nemoguardrails server --config=./configs --disable-chat-ui
+```
+
+### With Path Prefix
+
+Deploy behind a reverse proxy with a path prefix:
+
+```bash
+nemoguardrails server --config=./configs --prefix=/api/guardrails
+```
+
+API endpoints will be available at:
+- `http://localhost:8000/api/guardrails/v1/chat/completions`
+- `http://localhost:8000/api/guardrails/v1/rails/configs`
+
+### Set Default Config
+
+Set a default configuration for requests that don't specify one:
+
+```bash
+nemoguardrails server --config=./configs --default-config-id=chatbot
+```
+
+## Environment Variables
+
+The server respects several environment variables:
+
+### CORS Configuration
+
+```bash
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+export NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS="http://localhost:3000,https://myapp.com"
+nemoguardrails server --config=./configs
+```
+
+### Model Provider
+
+```bash
+export MAIN_MODEL_ENGINE=openai
+export MAIN_MODEL_BASE_URL=https://api.openai.com/v1
+export OPENAI_API_KEY=sk-...
+nemoguardrails server --config=./configs
+```
+
+### Default Config
+
+```bash
+export DEFAULT_CONFIG_ID=my-default-config
+nemoguardrails server --config=./configs
+```
+
+## Testing the Server
+
+### Check Server Status
+
+```bash
+curl http://localhost:8000/
+```
+
+### List Available Configs
+
+```bash
+curl http://localhost:8000/v1/rails/configs
+```
+
+### List Available Models
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+### Test Chat Completion
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "guardrails": {"config_id": "chatbot"}
+  }'
+```
+
+## Using with OpenAI SDK
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"  # API key not required for local server
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "user", "content": "Hello!"}
+    ],
+    extra_body={
+        "guardrails": {
+            "config_id": "chatbot"
+        }
+    }
+)
+
+print(response.choices[0].message.content)
+```
+
+## Production Deployment
+
+### Using Gunicorn
+
+```bash
+pip install gunicorn
+gunicorn nemoguardrails.server.api:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000
+```
+
+### Using Docker
+
+```dockerfile Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy configurations
+COPY configs/ /app/configs/
+
+# Expose port
+EXPOSE 8000
+
+# Run server
+CMD ["nemoguardrails", "server", \
+     "--config=/app/configs", \
+     "--port=8000", \
+     "--disable-chat-ui"]
+```
+
+Build and run:
+```bash
+docker build -t guardrails-server .
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  guardrails-server
+```
+
+### Using Docker Compose
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  guardrails:
+    image: guardrails-server
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MAIN_MODEL_ENGINE=openai
+      - NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+    volumes:
+      - ./configs:/app/configs
+    command: [
+      "nemoguardrails", "server",
+      "--config=/app/configs",
+      "--port=8000"
+    ]
+```
+
+## Troubleshooting
+
+### Server Won't Start
+
+Check if port is already in use:
+```bash
+lsof -i :8000
+```
+
+Try a different port:
+```bash
+nemoguardrails server --port=8001
+```
+
+### Config Not Found
+
+Verify config path:
+```bash
+ls -la ./configs
+```
+
+Each config directory must contain a `config.yml` or `config.yaml` file.
+
+### Module Not Found
+
+Make sure you have the server dependencies:
+```bash
+pip install nemoguardrails[server]
+```
+
+### CORS Issues
+
+Enable CORS if accessing from a web app:
+```bash
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+nemoguardrails server --config=./configs
+```

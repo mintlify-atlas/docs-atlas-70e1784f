@@ -1,0 +1,409 @@
+---
+title: Input Rails
+description: Validate and sanitize user inputs with jailbreak detection, content safety, and sensitive data protection.
+---
+
+# Input Rails
+
+Input rails execute **before** the LLM processes user input. They validate, sanitize, and filter user messages to protect against jailbreaks, prompt injections, content policy violations, and sensitive data leaks.
+
+## When Input Rails Execute
+
+Input rails run immediately after receiving user input and before any LLM processing:
+
+```
+User Input → Input Rails → LLM Processing → Response
+            ↓
+        Block/Allow/Modify
+```
+
+<Note>
+If an input rail blocks the message, the LLM is never called, saving costs and preventing potential security issues.
+</Note>
+
+## Built-in Input Rails
+
+### Jailbreak Detection
+
+Detects attempts to bypass guardrails using heuristics or trained classifiers.
+
+#### Configuration
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  config:
+    jailbreak_detection:
+      server_endpoint: "http://localhost:1337/heuristics"
+      lp_threshold: 89.79
+      ps_ppl_threshold: 1845.65
+      embedding: "Snowflake/snowflake-arctic-embed-m-long"
+
+  input:
+    flows:
+      - jailbreak detection heuristics
+      - jailbreak detection model
+```
+
+#### Available Actions
+
+**Heuristic-based detection** (nemoguardrails/library/jailbreak_detection/actions.py:56):
+
+```python
+@action()
+async def jailbreak_detection_heuristics(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    **kwargs,
+) -> bool:
+    """Checks the user's prompt to determine if it is attempt to jailbreak the model."""
+    jailbreak_config = llm_task_manager.config.rails.config.jailbreak_detection
+    
+    jailbreak_api_url = jailbreak_config.server_endpoint
+    lp_threshold = jailbreak_config.length_per_perplexity_threshold
+    ps_ppl_threshold = jailbreak_config.prefix_suffix_perplexity_threshold
+    
+    prompt = context.get("user_message")
+    # ... detection logic
+```
+
+**Model-based detection** (nemoguardrails/library/jailbreak_detection/actions.py:91):
+
+```python
+@action()
+async def jailbreak_detection_model(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    model_caches: Optional[Dict[str, CacheInterface]] = None,
+) -> bool:
+    """Uses a trained classifier to determine if a user input is a jailbreak attempt"""
+```
+
+<Warning>
+When `server_endpoint` is not configured, detection runs in-process. This is **NOT RECOMMENDED FOR PRODUCTION** due to performance overhead.
+</Warning>
+
+#### NIM-based Detection
+
+For production deployments, use NVIDIA NIM:
+
+```yaml
+rails:
+  config:
+    jailbreak_detection:
+      nim_base_url: "https://your-nim-endpoint.nvidia.com"
+      nim_server_endpoint: "/classify"
+```
+
+### Content Safety
+
+Uses specialized models like Llama Guard or NeMoGuard to check for policy violations.
+
+#### Configuration
+
+```yaml
+models:
+  - type: main
+    engine: nim
+    model: meta/llama-3.3-70b-instruct
+
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+rails:
+  input:
+    flows:
+      - content safety check input $model=content_safety
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/content_safety/actions.py:42:
+
+```python
+@action()
+async def content_safety_check_input(
+    llms: Dict[str, BaseLLM],
+    llm_task_manager: LLMTaskManager,
+    model_name: Optional[str] = None,
+    context: Optional[dict] = None,
+    model_caches: Optional[Dict[str, CacheInterface]] = None,
+    **kwargs,
+) -> dict:
+    _MAX_TOKENS = 3
+    user_input: str = ""
+
+    if context is not None:
+        user_input = context.get("user_message", "")
+        model_name = model_name or context.get("model", None)
+
+    if model_name is None:
+        error_msg = (
+            "Model name is required for content safety check, "
+            "please provide it as an argument in the config.yml. "
+            "e.g. content safety check input $model=llama_guard"
+        )
+        raise ValueError(error_msg)
+
+    # ... safety check logic
+    return {"allowed": is_safe, "policy_violations": violated_policies}
+```
+
+#### Multilingual Support
+
+```yaml
+rails:
+  config:
+    content_safety:
+      multilingual:
+        refusal_messages:
+          en: "I'm sorry, I can't respond to that."
+          es: "Lo siento, no puedo responder a eso."
+          zh: "抱歉，我无法回应。"
+```
+
+Supported languages: `en`, `es`, `zh`, `de`, `fr`, `hi`, `ja`, `ar`, `th`
+
+### Self Check Input
+
+Uses the main LLM to validate its own inputs.
+
+#### Configuration
+
+```yaml
+rails:
+  input:
+    flows:
+      - self check input
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/self_check/input_check/actions.py:33:
+
+```python
+@action(is_system_action=True)
+async def self_check_input(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llm: Optional[BaseLLM] = None,
+    config: Optional[RailsConfig] = None,
+    **kwargs,
+):
+    """Checks the input from the user.
+
+    Prompt the LLM, using the `check_input` task prompt, to determine if the input
+    from the user should be allowed or not.
+
+    Returns:
+        True if the input should be allowed, False otherwise.
+    """
+
+    _MAX_TOKENS = 3
+    user_input = context.get("user_message")
+    task = Task.SELF_CHECK_INPUT
+
+    if user_input:
+        prompt = llm_task_manager.render_task_prompt(
+            task=task,
+            context={
+                "user_input": user_input,
+            },
+        )
+        # ... LLM validation
+```
+
+<Note>
+Self-check rails use the main LLM, so they add latency. Consider using specialized models for production.
+</Note>
+
+### Llama Guard
+
+Meta's content moderation model with customizable safety policies.
+
+#### Configuration
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4
+
+  - type: llama_guard
+    engine: nim
+    model: meta/llama-guard-3-8b
+
+rails:
+  input:
+    flows:
+      - llama guard check input
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/llama_guard/actions.py:55:
+
+```python
+@action()
+async def llama_guard_check_input(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llama_guard_llm: Optional[BaseLLM] = None,
+    **kwargs,
+) -> dict:
+    """
+    Checks user messages using the configured Llama Guard model
+    and the configured prompt containing the safety guidelines.
+    """
+    user_input = context.get("user_message")
+    check_input_prompt = llm_task_manager.render_task_prompt(
+        task=Task.LLAMA_GUARD_CHECK_INPUT,
+        context={
+            "user_input": user_input,
+        },
+    )
+    # ... returns {"allowed": bool, "policy_violations": list}
+```
+
+Response format:
+
+```python
+{
+    "allowed": True,  # False if unsafe
+    "policy_violations": ["S1", "S2"]  # List of violated policy IDs
+}
+```
+
+### Sensitive Data Detection
+
+Detects and masks PII using Microsoft Presidio.
+
+#### Configuration
+
+```yaml
+rails:
+  config:
+    sensitive_data_detection:
+      recognizers:
+        - name: "SSN"
+          supported_language: "en"
+          patterns:
+            - name: "ssn_pattern"
+              regex: "[0-9]{3}-[0-9]{2}-[0-9]{4}"
+              score: 0.85
+      input:
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+        score_threshold: 0.4
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/sensitive_data_detection/actions.py:93:
+
+```python
+@action(is_system_action=True, output_mapping=detect_sensitive_data_mapping)
+async def detect_sensitive_data(
+    source: str,
+    text: str,
+    config: RailsConfig,
+    **kwargs,
+):
+    """Checks whether the provided text contains any sensitive data.
+
+    Args
+        source: The source for the text, i.e. "input", "output", "retrieval".
+        text: The text to check.
+        config: The rails configuration object.
+
+    Returns
+        True if any sensitive data has been detected, False otherwise.
+    """
+    sdd_config = config.rails.config.sensitive_data_detection
+    options: SensitiveDataDetectionOptions = getattr(sdd_config, source)
+    
+    analyzer = _get_analyzer(score_threshold=default_score_threshold)
+    results = analyzer.analyze(
+        text=text,
+        language="en",
+        entities=options.entities,
+        ad_hoc_recognizers=_get_ad_hoc_recognizers(sdd_config),
+    )
+    
+    if results:
+        return True
+    return False
+```
+
+#### Masking Sensitive Data
+
+```python
+@action(is_system_action=True)
+async def mask_sensitive_data(source: str, text: str, config: RailsConfig):
+    """Masks sensitive data in text."""
+    # ... returns text with PII replaced
+```
+
+<Warning>
+Presidio requires additional dependencies:
+```bash
+pip install presidio-analyzer presidio-anonymizer
+python -m spacy download en_core_web_lg
+```
+</Warning>
+
+## Usage Examples
+
+### Combining Multiple Input Rails
+
+```yaml
+rails:
+  input:
+    flows:
+      - jailbreak detection model
+      - content safety check input $model=content_safety
+      - detect sensitive data source=input
+```
+
+Rails execute in the order specified. If any rail blocks the input, processing stops.
+
+### Parallel Execution
+
+For better performance, configure parallel execution:
+
+```yaml
+rails:
+  config:
+    parallel_rails:
+      input: true
+```
+
+### Custom Response on Block
+
+Define flows to handle blocked inputs:
+
+```colang
+define flow handle unsafe input
+  event UtteranceBotAction(final_script="I'm sorry, I can't respond to that.")
+```
+
+## Best Practices
+
+1. **Layer your defenses** - Use multiple complementary rails (e.g., jailbreak + content safety)
+2. **Use specialized models** - Content safety models are faster and more accurate than LLM self-checks
+3. **Enable caching** - Reduce latency by caching rail results for repeated inputs
+4. **Monitor performance** - Track rail execution times and block rates
+5. **Customize thresholds** - Tune sensitivity based on your use case
+
+## See Also
+
+- [Output Rails](/guardrails/output-rails) - Validate LLM responses
+- [Retrieval Rails](/guardrails/retrieval-rails) - Check facts against knowledge base
+- [Rail Types](/concepts/guardrail-types) - Understanding all rail categories

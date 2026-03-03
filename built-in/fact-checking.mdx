@@ -1,0 +1,273 @@
+---
+title: Fact Checking
+description: Verify bot responses against knowledge base content to prevent factual errors
+---
+
+Fact checking rails help ensure your bot's responses are grounded in your knowledge base and don't contain factual inaccuracies.
+
+## Overview
+
+The fact checking guardrail validates bot responses against retrieved evidence (relevant chunks from your knowledge base). It:
+
+- Checks if bot responses are accurate relative to the evidence
+- Prevents the bot from making unsupported claims
+- Works with RAG (Retrieval-Augmented Generation) systems
+- Requires explicit activation per response
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable fact checking in output rails">
+    The fact checking flow is included by default:
+    
+    ```yaml config.yml
+    rails:
+      output:
+        flows:
+          - self check facts
+    ```
+  </Step>
+  
+  <Step title="Activate fact checking per message">
+    Set `$check_facts = True` before generating responses:
+    
+    ```colang flows.co
+    flow user ask about knowledge
+      user ask question about kb
+      
+      # Enable fact checking for this response
+      $check_facts = True
+      $bot_message = execute llm_call_with_kb()
+      
+      bot $bot_message
+    ```
+  </Step>
+  
+  <Step title="Ensure relevant chunks are available">
+    The fact checker needs `$relevant_chunks` in the context:
+    
+    ```python
+    # Your retrieval code should populate this
+    context["relevant_chunks"] = retrieved_documents
+    ```
+  </Step>
+</Steps>
+
+## How It Works
+
+The fact checking rail:
+
+1. Checks if `$check_facts` is set to `True`
+2. Retrieves the bot's response and relevant evidence chunks
+3. Prompts the LLM to assess factual accuracy
+4. Returns a score from 0.0 (inaccurate) to 1.0 (accurate)
+5. Blocks responses with accuracy below 0.5
+
+## Configuration
+
+### Basic Configuration
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  output:
+    flows:
+      - self check facts
+```
+
+No additional configuration is needed - the rail is ready to use once included.
+
+### Activating Fact Checking
+
+Fact checking must be explicitly activated:
+
+```colang flows.co
+flow answer question with fact check
+  user ask question
+  
+  # Enable fact checking
+  $check_facts = True
+  
+  # Generate response (ensure $relevant_chunks is populated)
+  $response = execute retrieval_and_generation()
+  
+  bot $response
+```
+
+<Note>
+If `$check_facts` is not set to `True`, the fact checking rail does nothing. This allows you to selectively enable fact checking only when needed.
+</Note>
+
+## Evidence Requirements
+
+The fact checker requires `$relevant_chunks` to be populated:
+
+```python
+# In your custom action or retrieval flow
+context["relevant_chunks"] = [
+    "Chunk 1: The company was founded in 2020.",
+    "Chunk 2: Our headquarters is in San Francisco.",
+    "Chunk 3: We have 500 employees worldwide."
+]
+```
+
+If no evidence is provided, the fact checker always returns `True` (allows the response).
+
+## Accuracy Threshold
+
+The default threshold is **0.5**. Responses with accuracy below this are blocked:
+
+```python
+# From actions.py
+THRESHOLD = 0.5
+return result < THRESHOLD  # Block if accuracy < 0.5
+```
+
+To customize the threshold, you can create a custom action:
+
+```python
+from nemoguardrails.actions import action
+
+@action(output_mapping=lambda result: result < 0.7)  # Custom threshold
+async def my_fact_checker(...):
+    # Your implementation
+    pass
+```
+
+## Behavior
+
+When a fact check fails (accuracy < 0.5):
+
+### With Rails Exceptions
+
+```yaml config.yml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+
+Raises `FactCheckRailException` with a message about the failed check.
+
+### Without Rails Exceptions
+
+The bot refuses to respond and aborts the conversation.
+
+## Context Variables
+
+The fact checking rail uses:
+
+**Input:**
+- `$relevant_chunks` - Evidence from knowledge base (list of strings)
+- `$bot_message` - The bot's generated response
+- `$check_facts` - Boolean flag to enable checking
+
+**Output:**
+- `$accuracy` - Float from 0.0 to 1.0 representing factual accuracy
+- `$check_facts` - Reset to `False` after checking
+
+## Custom Flows
+
+Create custom fact checking flows:
+
+```colang flows.co
+flow my custom fact check
+  """Fact check with warning instead of blocking."""
+  if $check_facts == True
+    $check_facts = False
+    $accuracy = await SelfCheckFactsAction
+    
+    if $accuracy < 0.5
+      bot say "Note: This information may not be entirely accurate. Please verify independently."
+    else if $accuracy < 0.7
+      bot say "This information is based on our knowledge base, but we recommend verifying important details."
+```
+
+## Integration with RAG
+
+Typical RAG flow with fact checking:
+
+```colang flows.co
+flow rag with fact checking
+  user ask question
+  
+  # Retrieve relevant documents
+  $relevant_chunks = execute retrieve_documents(question=$user_message)
+  
+  # Generate response using retrieved context
+  $bot_message = execute generate_with_context(
+    question=$user_message,
+    context=$relevant_chunks
+  )
+  
+  # Enable fact checking
+  $check_facts = True
+  
+  bot $bot_message
+```
+
+## Temperature Settings
+
+Fact checking uses the lowest possible temperature for consistency:
+
+```python
+llm_params={
+    "temperature": config.lowest_temperature,
+    "max_tokens": 3
+}
+```
+
+## Implementation Details
+
+The fact checking flows are defined in:
+- `/nemoguardrails/library/self_check/facts/flows.co`
+- `/nemoguardrails/library/self_check/facts/actions.py`
+
+Actions:
+- `SelfCheckFactsAction` - Performs the fact check using LLM
+
+The action uses the `self_check_facts` task prompt, which you can customize in `prompts.yml`.
+
+## Custom Task Prompts
+
+Customize the fact checking prompt:
+
+```yaml prompts.yml
+task_prompts:
+  - task: self_check_facts
+    content: |
+      You are evaluating the factual accuracy of a response.
+      
+      Evidence:
+      {{ evidence }}
+      
+      Response to check:
+      {{ response }}
+      
+      Is the response factually accurate based on the evidence?
+      Answer "yes" if accurate, "no" if not.
+```
+
+## Best Practices
+
+1. **Enable selectively** - Only use fact checking for knowledge-based responses
+2. **Provide good evidence** - Ensure `$relevant_chunks` contains relevant, high-quality information
+3. **Handle failures gracefully** - Consider warning users instead of always blocking
+4. **Test threshold** - The default 0.5 may need adjustment for your use case
+5. **Monitor performance** - Fact checking adds latency; consider caching strategies
+
+## Limitations
+
+- Requires evidence chunks to be available
+- Adds latency due to additional LLM call
+- May have false positives/negatives depending on evidence quality
+- Works best with clear, factual content (not opinions or creative responses)
+
+## See Also
+
+- [Hallucination Detection](/built-in/hallucination-detection)
+- [Output Rails](/guardrails/output-rails)
+- [RAG Integration](/examples/basic-rag)

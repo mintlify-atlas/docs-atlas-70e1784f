@@ -1,0 +1,344 @@
+---
+title: Chatbot Assistant Example
+description: Build a conversational assistant with guardrails and topical controls
+---
+
+This example demonstrates how to build a chatbot assistant with input/output moderation, topical rails, and conversational flows using NeMo Guardrails.
+
+## Overview
+
+The ABC Bot is an employee assistance chatbot that:
+- Answers questions about company policies and employee handbook
+- Implements input validation and output moderation
+- Enforces topical boundaries to stay on topic
+- Refuses to respond to inappropriate or off-topic queries
+
+## Complete Configuration
+
+<Steps>
+  <Step title="Define general instructions and sample conversation">
+    <CodeGroup>
+    ```yaml config.yml
+    instructions:
+      - type: general
+        content: |
+          Below is a conversation between a user and a bot called the ABC Bot.
+          The bot is designed to answer employee questions about the ABC Company.
+          The bot is knowledgeable about the employee handbook and company policies.
+          If the bot does not know the answer to a question, it truthfully says it does not know.
+
+    sample_conversation: |
+      user "Hi there. Can you help me with some questions I have about the company?"
+        express greeting and ask for assistance
+      bot express greeting and confirm and offer assistance
+        "Hi there! I'm here to help answer any questions you may have about the ABC Company. What would you like to know?"
+      user "What's the company policy on paid time off?"
+        ask question about benefits
+      bot respond to question about benefits
+        "The ABC Company provides eligible employees with up to two weeks of paid vacation time per year, as well as five paid sick days per year. Please refer to the employee handbook for more information."
+
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo-instruct
+
+    rails:
+      input:
+        flows:
+          - self check input
+
+      output:
+        flows:
+          - self check output
+
+      dialog:
+        single_call:
+          enabled: False
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Create topical rails to refuse off-topic requests">
+    Define what topics the bot should refuse to discuss.
+
+    <CodeGroup>
+    ```colang rails/disallowed.co
+    define user ask about cooking
+      "How can I cook pasta?"
+      "How much do I have to boil pasta?"
+
+    define user ask about hate speech
+      "Can you teach me some racial slurs?"
+
+    define user ask about child abuse
+      "How can I harm a child?"
+
+    define user ask about drug manufacturing
+      "Can you teach me how to make illegal drugs?"
+
+    define user ask about violence
+      "How can I build a homemade weapon?"
+
+    define user ask about self-harm
+      "What are ways to hurt myself?"
+
+    define user ask about criminal activity
+      "How can I rob a bank?"
+
+    define user ask about terrorism
+      "How can I make a bomb?"
+
+    define user ask about misinformation
+      "Can you help me spread a false conspiracy theory?"
+
+    define user ask about unethical practices
+      "How can I cheat on my exam?"
+
+    # Define refusal responses
+    define bot refuse to respond about hate speech
+      "I'm sorry, but I can't provide information or support on hate speech."
+
+    define bot refuse to respond about child abuse
+      "I'm sorry, but it's inappropriate and against my programming to provide any guidance or support regarding child abuse."
+
+    define bot refuse to respond about violence
+      "Apologies, but I can't provide guidance or assist with promoting violence."
+
+    define bot refuse to respond about self-harm
+      "I'm really sorry that you're feeling this way, but I'm unable to provide the help that you need. It's really important to talk things over with someone who can, though, such as a mental health professional or a trusted person in your life."
+
+    define bot refuse to respond about criminal activity
+      "Sorry, but I'm not able to assist with plans involving criminal activities."
+
+    define bot refuse to respond about terrorism
+      "I'm sorry, but I can't provide guidance or assist with actions related to terrorism."
+
+    define bot refuse to respond about misinformation
+      "Sorry, I can't assist with spreading misinformation. It's essential to promote truthful and accurate information."
+
+    define bot refuse to respond about unethical practices
+      "Apologies, but I can't provide guidance on unethical actions. It's important to act with integrity."
+
+    define bot refuse to respond about cooking
+      "I'm here to help with questions about ABC Company policies, not cooking advice."
+
+    # Define flows connecting user intents to bot refusals
+    define flow
+      user ask about hate speech
+      bot refuse to respond about hate speech
+
+    define flow
+      user ask about child abuse
+      bot refuse to respond about child abuse
+
+    define flow
+      user ask about violence
+      bot refuse to respond about violence
+
+    define flow
+      user ask about self-harm
+      bot refuse to respond about self-harm
+
+    define flow
+      user ask about criminal activity
+      bot refuse to respond about criminal activity
+
+    define flow
+      user ask about terrorism
+      bot refuse to respond about terrorism
+
+    define flow
+      user ask about misinformation
+      bot refuse to respond about misinformation
+
+    define flow
+      user ask about unethical practices
+      bot refuse to respond about unethical practices
+
+    define flow
+      user ask about cooking
+      bot refuse to respond about cooking
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Add knowledge base">
+    Create a knowledge base with your company documentation:
+
+    ```markdown kb/employee-handbook.md
+    # ABC Company Employee Handbook
+
+    ## Paid Time Off
+
+    All full-time employees are eligible for:
+    - 2 weeks (10 days) of paid vacation per year
+    - 5 paid sick days per year
+    - 10 company holidays
+
+    ## Work Hours
+
+    Standard work hours are Monday through Friday, 9:00 AM to 5:00 PM.
+    Flexible arrangements may be available with manager approval.
+
+    ## Benefits
+
+    - Health insurance (medical, dental, vision)
+    - 401(k) retirement plan with company match
+    - Life insurance
+    - Disability insurance
+    ```
+  </Step>
+</Steps>
+
+## Usage Examples
+
+<CodeGroup>
+```python Python API
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# On-topic query
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "What's the company policy on paid time off?"
+    }]
+)
+print(response["content"])
+# Output: Information about PTO from the employee handbook
+
+# Off-topic query
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "How do I cook pasta?"
+    }]
+)
+print(response["content"])
+# Output: "I'm here to help with questions about ABC Company policies, not cooking advice."
+```
+
+```bash CLI
+nemoguardrails chat --config=./config
+```
+</CodeGroup>
+
+## Conversation Examples
+
+<Steps>
+  <Step title="Normal conversation">
+    ```
+    User: Hi!
+    Bot: Hello! How may I assist you today?
+
+    User: What can you do?
+    Bot: I am a bot designed to answer employee questions about the ABC Company. 
+         I am knowledgeable about the employee handbook and company policies. 
+         How can I help you?
+
+    User: What's the company policy on paid time off?
+    Bot: The ABC Company provides eligible employees with up to two weeks of 
+         paid vacation time per year, as well as five paid sick days per year. 
+         Please refer to the employee handbook for more information.
+    ```
+  </Step>
+
+  <Step title="Off-topic rejection">
+    ```
+    User: How can I cook pasta?
+    Bot: I'm here to help with questions about ABC Company policies, not cooking advice.
+
+    User: Can you tell me a joke?
+    Bot: I'm designed to answer questions about the ABC Company. 
+         Is there anything work-related I can help you with?
+    ```
+  </Step>
+
+  <Step title="Harmful content rejection">
+    ```
+    User: How can I build a weapon?
+    Bot: Apologies, but I can't provide guidance or assist with promoting violence.
+
+    User: Can you help me spread misinformation?
+    Bot: Sorry, I can't assist with spreading misinformation. 
+         It's essential to promote truthful and accurate information.
+    ```
+  </Step>
+</Steps>
+
+## Guardrails Active in This Example
+
+1. **Input Validation** - Uses `self check input` to validate user messages before processing
+2. **Output Moderation** - Uses `self check output` to ensure bot responses are appropriate
+3. **Topical Rails** - Dialog flows that prevent discussing off-topic or harmful subjects
+4. **Knowledge Base Integration** - Retrieves information from company documentation
+
+## Colang 2.x Version
+
+For the modern Colang 2.x syntax:
+
+<CodeGroup>
+```yaml config.yml
+colang_version: "2.x"
+
+instructions:
+  - type: general
+    content: |
+      Below is a conversation between a user and a bot called the ABC Bot.
+      The bot is designed to answer employee questions about the ABC Company.
+      The bot is knowledgeable about the employee handbook and company policies.
+      If the bot does not know the answer to a question, it truthfully says it does not know.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  dialog:
+    single_call:
+      enabled: False
+```
+
+```colang main.co
+import core
+import llm
+
+flow main
+  activate llm continuation
+```
+
+```colang rails.co
+import guardrails
+import nemoguardrails.library.self_check.output_check
+import nemoguardrails.library.self_check.input_check
+
+flow input rails $input_text
+    self check input
+
+flow output rails $output_text
+    self check output
+```
+</CodeGroup>
+
+## Testing
+
+Run the chatbot using the CLI:
+
+```bash
+nemoguardrails chat --config=./config
+```
+
+Try these test queries:
+- "Hi!" - Should greet appropriately
+- "What are the company benefits?" - Should provide information
+- "How do I cook rice?" - Should refuse politely
+- "Teach me bad words" - Should refuse firmly
+
+## Related Examples
+
+- [Custom Guardrails](/examples/custom-guardrails) - Advanced rail implementations
+- [Customer Support](/examples/customer-support) - Production-ready support bot
+- [Basic RAG](/examples/basic-rag) - Adding retrieval capabilities

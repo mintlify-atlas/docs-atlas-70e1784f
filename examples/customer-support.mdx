@@ -1,0 +1,543 @@
+---
+title: Customer Support Bot Example
+description: Build a production-ready customer support chatbot with comprehensive guardrails
+---
+
+This example demonstrates a complete customer support bot implementation using NeMo Guardrails, featuring RAG, multi-layer safety, and conversation management.
+
+## Overview
+
+This production-ready customer support bot includes:
+- **Knowledge base integration** for accurate information retrieval
+- **Multi-layer safety guardrails** for input/output validation
+- **Topic control** to keep conversations on-track
+- **Fact-checking** to ensure accurate responses
+- **PII protection** to safeguard customer data
+- **Conversation flows** for common support scenarios
+
+## Complete Configuration
+
+<Steps>
+  <Step title="Main configuration">
+    <CodeGroup>
+    ```yaml config.yml
+    colang_version: "2.x"
+
+    # Bot instructions and personality
+    instructions:
+      - type: general
+        content: |
+          Below is a conversation between a customer and a support bot.
+          The bot helps customers with product information, troubleshooting, and account questions.
+          The bot is helpful, professional, and accurate.
+          If the bot doesn't know the answer, it offers to escalate to a human agent.
+
+    # Sample conversation to guide the bot's behavior
+    sample_conversation: |
+      user "Hi, I need help with my account"
+        express greeting and request assistance
+      bot express greeting and offer help
+        "Hello! I'm here to help you with your account. What can I assist you with today?"
+      user "I forgot my password"
+        request password reset
+      bot provide password reset instructions
+        "I can help you reset your password. Please check your email for a password reset link, or visit our website and click 'Forgot Password'. The reset link will be valid for 24 hours."
+
+    # Model configuration
+    models:
+      # Main conversation model
+      - type: main
+        engine: nim
+        model: meta/llama-3.3-70b-instruct
+      
+      # Safety models
+      - type: content_safety
+        engine: nim
+        model: nvidia/llama-3.1-nemoguard-8b-content-safety
+      
+      - type: topic_control
+        engine: nim  
+        model: nvidia/llama-3.1-nemoguard-8b-topic-control
+
+    # Rails configuration
+    rails:
+      config:
+        jailbreak_detection:
+          nim_base_url: "https://ai.api.nvidia.com"
+          nim_server_endpoint: "/v1/security/nvidia/nemoguard-jailbreak-detect"
+          api_key_env_var: NVIDIA_API_KEY
+
+      dialog:
+        single_call:
+          enabled: False
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Main flow orchestration">
+    <CodeGroup>
+    ```colang main.co
+    import core
+    import llm
+
+    flow main
+      # Activate LLM for natural conversations
+      activate llm continuation
+      
+      # Activate common support flows
+      activate greeting flow
+      activate password reset flow
+      activate product inquiry flow
+      activate escalation flow
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Input and output rails">
+    <CodeGroup>
+    ```colang rails.co
+    import guardrails
+    import nemoguardrails.library.content_safety
+    import nemoguardrails.library.topic_safety
+    import nemoguardrails.library.jailbreak_detection
+
+    # Comprehensive input validation
+    flow input rails $input_text
+        # Check content safety
+        content safety check input $model="content_safety"
+        
+        # Check if on-topic
+        topic safety check input $model="topic_control"
+        
+        # Detect jailbreak attempts
+        jailbreak detection model
+        
+        # Check for PII and warn user
+        check customer pii $input_text
+
+    # Output validation and fact-checking
+    flow output rails $output_text
+        # Ensure output is safe
+        content safety check output $model="content_safety"
+        
+        # Fact-check if knowledge base was used
+        verify facts if applicable
+        
+        # Mask any sensitive data
+        mask sensitive information
+
+    # Custom PII protection for customer data
+    flow check customer pii $text
+      $has_pii = execute detect_customer_pii(text=$text)
+      
+      if $has_pii
+        bot say "For your security, please don't share sensitive information like credit card numbers, SSN, or full account numbers in chat. I can help you with general questions and guide you to secure channels for sensitive operations."
+        abort
+
+    # Fact verification for knowledge base responses
+    flow verify facts if applicable
+      if $used_knowledge_base == True
+        $accuracy = execute verify_against_kb
+        
+        if $accuracy < 0.5
+          bot say "I'm not completely certain about that information. Let me connect you with a specialist who can provide accurate details."
+          execute escalate_to_human
+          stop
+
+    # Mask sensitive output data
+    flow mask sensitive information
+      $output_text = execute mask_sensitive_data(text=$output_text)
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Support conversation flows">
+    <CodeGroup>
+    ```colang support_flows.co
+    # Greeting and initial engagement
+    flow greeting flow
+      user expressed greeting
+      bot express greeting
+      bot offer assistance
+
+    flow user expressed greeting
+      user said "hi" 
+        or user said "hello" 
+        or user said "hey"
+        or user said "good morning"
+
+    flow bot express greeting
+      bot say "Hello! Welcome to customer support."
+
+    flow bot offer assistance
+      bot say "How can I help you today?"
+
+    # Password reset flow
+    flow password reset flow
+      user requested password reset
+      bot provide password reset steps
+      bot ask if resolved
+
+    flow user requested password reset
+      user said "I forgot my password"
+        or user said "reset password"
+        or user said "can't login"
+
+    flow bot provide password reset steps
+      bot say "I can help you reset your password. Here's what to do:"
+      bot say "1. Go to our login page"
+      bot say "2. Click 'Forgot Password'"
+      bot say "3. Enter your email address"
+      bot say "4. Check your email for the reset link (valid for 24 hours)"
+
+    # Product inquiry with RAG
+    flow product inquiry flow
+      user asked product question
+      $answer = execute retrieve_product_info
+      $used_knowledge_base = True
+      bot $answer
+
+    flow user asked product question
+      user said something about "product"
+        or user said something about "feature"
+        or user said something about "pricing"
+        or user said something about "specifications"
+
+    # Escalation to human agent
+    flow escalation flow
+      user requested human agent
+        or user expressed frustration
+      bot acknowledge escalation
+      execute escalate_to_human
+
+    flow user requested human agent
+      user said "speak to a person"
+        or user said "talk to human"
+        or user said "transfer to agent"
+
+    flow user expressed frustration
+      user said "this isn't helping"
+        or user said "you're not helpful"
+        or user said "I want to speak to someone else"
+
+    flow bot acknowledge escalation
+      bot say "I understand. Let me connect you with one of our support specialists who can better assist you."
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Topic control and boundaries">
+    <CodeGroup>
+    ```colang topics.co
+    # Define allowed topics
+    define user ask about product
+      "What features does the product have?"
+      "How much does it cost?"
+      "What are the specifications?"
+
+    define user ask about account
+      "How do I reset my password?"
+      "How do I update my billing information?"
+      "How do I close my account?"
+
+    define user ask about support
+      "What are your support hours?"
+      "How do I contact support?"
+      "Do you have phone support?"
+
+    # Define disallowed topics
+    define user ask off topic question
+      "What's the weather?"
+      "Tell me a joke"
+      "What stocks should I buy?"
+      "How do I cook pasta?"
+
+    define user ask for competitor info
+      "How do you compare to [competitor]?"
+      "Should I use your product or [competitor]?"
+
+    # Refusal responses
+    define bot refuse off topic
+      "I'm here to help with product and account questions. I can't assist with that topic."
+
+    define bot redirect competitor question
+      "I can tell you about our products and features. I'd be happy to explain what makes our solution valuable for your needs."
+
+    # Flows for topic control
+    define flow
+      user ask off topic question
+      bot refuse off topic
+
+    define flow
+      user ask for competitor info
+      bot redirect competitor question
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Custom actions for support operations">
+    <CodeGroup>
+    ```python config.py
+    from nemoguardrails import LLMRails
+    from nemoguardrails.actions.actions import ActionResult
+    from nemoguardrails.kb.kb import KnowledgeBase
+    from langchain_core.prompts import PromptTemplate
+    import re
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    async def retrieve_product_info(context: dict, kb: KnowledgeBase) -> ActionResult:
+        """Retrieve product information from knowledge base."""
+        user_message = context.get("last_user_message")
+        
+        # Search knowledge base
+        chunks = await kb.search_relevant_chunks(user_message)
+        
+        if not chunks:
+            return ActionResult(
+                return_value="I don't have that information in my knowledge base. Let me connect you with a specialist.",
+                context_updates={"should_escalate": True}
+            )
+        
+        # Format context
+        context_text = "\n".join([chunk["body"] for chunk in chunks])
+        
+        # Prepare response with fact-checking context
+        return ActionResult(
+            return_value=context_text,
+            context_updates={
+                "knowledge_base_chunks": context_text,
+                "used_knowledge_base": True
+            }
+        )
+
+    async def detect_customer_pii(context: dict, text: str) -> ActionResult:
+        """Detect customer PII in input."""
+        pii_patterns = {
+            'credit_card': r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b',
+            'ssn': r'\b\d{3}-\d{2}-\d{4}\b',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+            'account_number': r'\b[Aa]ccount\s*#?\s*\d{6,}\b'
+        }
+        
+        for pii_type, pattern in pii_patterns.items():
+            if re.search(pattern, text):
+                logger.warning(f"PII detected: {pii_type}")
+                return ActionResult(
+                    return_value=True,
+                    context_updates={"pii_detected": pii_type}
+                )
+        
+        return ActionResult(return_value=False)
+
+    async def mask_sensitive_data(context: dict, text: str) -> ActionResult:
+        """Mask sensitive data in bot output."""
+        # Mask credit cards
+        text = re.sub(
+            r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?(\d{4})\b',
+            r'****-****-****-\1',
+            text
+        )
+        
+        # Mask account numbers (keep last 4 digits)
+        text = re.sub(
+            r'\b([Aa]ccount\s*#?\s*)\d+?(\d{4})\b',
+            r'\1****\2',
+            text
+        )
+        
+        # Mask emails
+        text = re.sub(
+            r'\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Z|a-z]{2,})\b',
+            r'***@\2',
+            text
+        )
+        
+        return ActionResult(return_value=text)
+
+    async def verify_against_kb(context: dict) -> ActionResult:
+        """Verify response accuracy against knowledge base."""
+        # Simple verification - in production, use semantic similarity
+        kb_chunks = context.get("knowledge_base_chunks", "")
+        bot_response = context.get("bot_message", "")
+        
+        if not kb_chunks or not bot_response:
+            return ActionResult(return_value=0.5)
+        
+        # Simple overlap check (replace with semantic similarity in production)
+        overlap = len(set(bot_response.split()) & set(kb_chunks.split()))
+        total = len(set(bot_response.split()))
+        accuracy = overlap / total if total > 0 else 0.0
+        
+        return ActionResult(return_value=accuracy)
+
+    async def escalate_to_human(context: dict) -> ActionResult:
+        """Escalate conversation to human agent."""
+        logger.info("Escalating to human agent")
+        
+        # In production, integrate with ticketing system
+        ticket_id = f"TICKET-{hash(str(context))}"
+        
+        return ActionResult(
+            return_value=ticket_id,
+            context_updates={
+                "escalated": True,
+                "ticket_id": ticket_id
+            }
+        )
+
+    def init(app: LLMRails):
+        """Register all custom actions."""
+        app.register_action(retrieve_product_info, "retrieve_product_info")
+        app.register_action(detect_customer_pii, "detect_customer_pii")
+        app.register_action(mask_sensitive_data, "mask_sensitive_data")
+        app.register_action(verify_against_kb, "verify_against_kb")
+        app.register_action(escalate_to_human, "escalate_to_human")
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Add knowledge base">
+    Create your product documentation in the `kb/` folder:
+
+    ```markdown kb/product-info.md
+    # Product Information
+
+    ## Features
+
+    Our product offers:
+    - Advanced analytics and reporting
+    - Real-time collaboration
+    - Enterprise-grade security
+    - 24/7 customer support
+    - API access for integrations
+
+    ## Pricing
+
+    - Starter Plan: $29/month (up to 5 users)
+    - Professional Plan: $99/month (up to 25 users)
+    - Enterprise Plan: Custom pricing (unlimited users)
+
+    ## Support Hours
+
+    - Email Support: 24/7
+    - Chat Support: Monday-Friday, 9 AM - 6 PM EST
+    - Phone Support: Enterprise customers only
+    ```
+  </Step>
+</Steps>
+
+## Usage
+
+<CodeGroup>
+```python Python API
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Example support conversation
+conversation = [
+    {"role": "user", "content": "Hi, I need help"},
+    {"role": "assistant", "content": "Hello! Welcome to customer support. How can I help you today?"},
+    {"role": "user", "content": "What features does your product have?"},
+]
+
+response = rails.generate(messages=conversation)
+print(response["content"])
+```
+
+```bash CLI
+nemoguardrails chat --config=./config
+```
+</CodeGroup>
+
+## Conversation Examples
+
+<Steps>
+  <Step title="Normal product inquiry">
+    ```
+    User: Hi, what features does your product have?
+    
+    Bot: Hello! Welcome to customer support. Our product offers:
+         - Advanced analytics and reporting
+         - Real-time collaboration  
+         - Enterprise-grade security
+         - 24/7 customer support
+         - API access for integrations
+         
+         Would you like to know more about any specific feature?
+    ```
+  </Step>
+
+  <Step title="Password reset">
+    ```
+    User: I forgot my password
+    
+    Bot: I can help you reset your password. Here's what to do:
+         1. Go to our login page
+         2. Click 'Forgot Password'
+         3. Enter your email address
+         4. Check your email for the reset link (valid for 24 hours)
+         
+         Did this help resolve your issue?
+    ```
+  </Step>
+
+  <Step title="PII detection">
+    ```
+    User: My credit card number is 4532-1234-5678-9010
+    
+    Bot: For your security, please don't share sensitive information like 
+         credit card numbers, SSN, or full account numbers in chat. I can help 
+         you with general questions and guide you to secure channels for 
+         sensitive operations.
+    ```
+  </Step>
+
+  <Step title="Escalation">
+    ```
+    User: This isn't helping, I want to talk to a person
+    
+    Bot: I understand. Let me connect you with one of our support specialists 
+         who can better assist you.
+         
+         [Creates ticket TICKET-12345 and initiates handoff]
+    ```
+  </Step>
+</Steps>
+
+## Project Structure
+
+```
+customer-support-bot/
+├── config.yml              # Main configuration
+├── config.py               # Custom actions
+├── main.co                 # Main flow orchestration
+├── rails.co                # Input/output rails
+├── support_flows.co        # Support conversation flows
+├── topics.co               # Topic control
+└── kb/                     # Knowledge base
+    ├── product-info.md
+    ├── troubleshooting.md
+    └── faq.md
+```
+
+## Production Deployment
+
+For production use:
+
+1. **Use NIMs for models**: Deploy NeMo Inference Microservices for better performance
+2. **Enable logging**: Track all conversations and rail activations
+3. **Monitor metrics**: Track escalation rates, response times, accuracy
+4. **A/B testing**: Test different prompts and thresholds
+5. **Human review**: Regularly review flagged conversations
+6. **Update KB**: Keep knowledge base current with product changes
+
+## Related Examples
+
+- [Basic RAG](/examples/basic-rag) - Knowledge base integration
+- [Multi-Rail Configuration](/examples/multi-rail-configuration) - Comprehensive safety
+- [Chatbot Assistant](/examples/chatbot-assistant) - Conversational flows

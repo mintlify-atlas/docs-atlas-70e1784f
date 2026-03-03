@@ -1,0 +1,385 @@
+---
+title: Production Deployment
+description: Best practices and guidelines for deploying NeMo Guardrails in production environments.
+---
+
+# Production Deployment
+
+Deploying NeMo Guardrails in production requires careful consideration of security, scalability, monitoring, and reliability. This guide covers best practices for production deployments.
+
+## Security Considerations
+
+### API Authentication
+
+Implement authentication to protect your guardrails endpoints:
+
+<Steps>
+  <Step title="Choose an Authentication Method">
+    Options include:
+    - API keys
+    - OAuth 2.0 / JWT tokens
+    - Mutual TLS (mTLS)
+  </Step>
+
+  <Step title="Implement API Gateway">
+    Use an API gateway (e.g., Kong, AWS API Gateway, Azure API Management) to handle authentication:
+    
+    ```yaml
+    # Example Kong configuration
+    services:
+      - name: nemoguardrails
+        url: http://nemoguardrails:8000
+        plugins:
+          - name: key-auth
+          - name: rate-limiting
+            config:
+              minute: 100
+    ```
+  </Step>
+
+  <Step title="Secure API Keys">
+    Store API keys in a secure secrets manager:
+    - AWS Secrets Manager
+    - Azure Key Vault
+    - HashiCorp Vault
+    - Kubernetes Secrets
+  </Step>
+</Steps>
+
+### TLS/SSL Encryption
+
+Always use HTTPS in production:
+
+```nginx
+# Nginx reverse proxy configuration
+server {
+    listen 443 ssl http2;
+    server_name guardrails.example.com;
+
+    ssl_certificate /etc/ssl/certs/cert.pem;
+    ssl_certificate_key /etc/ssl/private/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Secrets Management
+
+Never hardcode sensitive information. Use environment variables and secrets management:
+
+<Code>
+  ```bash
+  # Load from environment
+  export OPENAI_API_KEY=$(aws secretsmanager get-secret-value \
+    --secret-id prod/nemoguardrails/openai-key \
+    --query SecretString \
+    --output text)
+  
+  nemoguardrails server --config=/config
+  ```
+</Code>
+
+<Note>
+  **Security Alert**: Follow NVIDIA's security guidelines. Report vulnerabilities to psirt@nvidia.com, not through GitHub issues.
+</Note>
+
+### Network Security
+
+<Steps>
+  <Step title="Firewall Rules">
+    Restrict access to only necessary ports and IP ranges:
+    ```bash
+    # Allow only from specific IP ranges
+    iptables -A INPUT -p tcp --dport 8000 -s 10.0.0.0/8 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 8000 -j DROP
+    ```
+  </Step>
+
+  <Step title="Private Networks">
+    Deploy in private subnets when possible, using load balancers for external access.
+  </Step>
+
+  <Step title="DDoS Protection">
+    Use DDoS protection services:
+    - Cloudflare
+    - AWS Shield
+    - Azure DDoS Protection
+  </Step>
+</Steps>
+
+## Scalability
+
+### Horizontal Scaling
+
+Scale NeMo Guardrails horizontally using multiple instances:
+
+```yaml
+# Kubernetes deployment example
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemoguardrails
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nemoguardrails
+  template:
+    metadata:
+      labels:
+        app: nemoguardrails
+    spec:
+      containers:
+      - name: nemoguardrails
+        image: nemoguardrails:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-keys
+              key: openai
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+```
+
+### Load Balancing
+
+Distribute traffic across multiple instances:
+
+<Code>
+  ```yaml
+  # Kubernetes Service with load balancer
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: nemoguardrails-service
+  spec:
+    type: LoadBalancer
+    selector:
+      app: nemoguardrails
+    ports:
+    - protocol: TCP
+      port: 443
+      targetPort: 8000
+  ```
+</Code>
+
+### Auto-Scaling
+
+Implement auto-scaling based on metrics:
+
+```yaml
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nemoguardrails-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nemoguardrails
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+## Monitoring and Observability
+
+### Logging
+
+Implement structured logging:
+
+<Steps>
+  <Step title="Configure Logging">
+    Enable verbose logging in production:
+    ```bash
+    nemoguardrails server --config=/config --verbose
+    ```
+  </Step>
+
+  <Step title="Centralize Logs">
+    Use a centralized logging solution:
+    - ELK Stack (Elasticsearch, Logstash, Kibana)
+    - Splunk
+    - Datadog
+    - CloudWatch Logs
+  </Step>
+
+  <Step title="Log Important Events">
+    Monitor for:
+    - Authentication failures
+    - Rate limit violations
+    - Guardrail activations
+    - LLM API errors
+    - Performance degradation
+  </Step>
+</Steps>
+
+### Metrics
+
+Track key performance indicators:
+
+- **Request Latency**: P50, P95, P99 response times
+- **Throughput**: Requests per second
+- **Error Rates**: 4xx and 5xx responses
+- **Guardrail Activations**: How often rails are triggered
+- **LLM API Usage**: Tokens consumed, costs
+
+### Health Checks
+
+Implement health check endpoints:
+
+```python
+# Example health check configuration
+GET /health
+Response: {"status": "healthy", "version": "0.9.0"}
+```
+
+## High Availability
+
+### Redundancy
+
+<Steps>
+  <Step title="Multi-Zone Deployment">
+    Deploy across multiple availability zones:
+    ```yaml
+    # Kubernetes pod anti-affinity
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: app
+              operator: In
+              values:
+              - nemoguardrails
+          topologyKey: topology.kubernetes.io/zone
+    ```
+  </Step>
+
+  <Step title="Backup LLM Providers">
+    Configure fallback LLM providers in case of service outages.
+  </Step>
+
+  <Step title="Database Redundancy">
+    If using external databases for knowledge bases, ensure they have replication and backups.
+  </Step>
+</Steps>
+
+### Disaster Recovery
+
+- **Regular Backups**: Backup configurations and knowledge bases
+- **Documented Procedures**: Maintain runbooks for incident response
+- **Testing**: Regularly test disaster recovery procedures
+
+## Performance Optimization
+
+### Caching
+
+Implement caching strategies:
+
+- **Embedding Cache**: Cache frequently used embeddings
+- **Response Cache**: Cache responses for common queries (if appropriate)
+- **LLM Response Cache**: Use LLM provider caching features
+
+### Resource Allocation
+
+Optimize resource allocation:
+
+<Code>
+  ```yaml
+  # Production resource recommendations
+  resources:
+    requests:
+      memory: "4Gi"  # Minimum required
+      cpu: "2"       # Minimum required
+    limits:
+      memory: "8Gi"  # Maximum allowed
+      cpu: "4"       # Maximum allowed
+  ```
+</Code>
+
+### Database Optimization
+
+For knowledge bases:
+
+- Use vector database optimizations
+- Implement proper indexing
+- Regular maintenance and vacuuming
+
+## Deployment Checklist
+
+Before going to production:
+
+- [ ] TLS/SSL configured and tested
+- [ ] Authentication implemented
+- [ ] API keys stored in secrets manager
+- [ ] Monitoring and alerting configured
+- [ ] Logging centralized
+- [ ] Auto-scaling policies defined
+- [ ] Health checks implemented
+- [ ] Backup and recovery procedures documented
+- [ ] Security scanning completed
+- [ ] Load testing performed
+- [ ] Rate limiting configured
+- [ ] DDoS protection enabled
+- [ ] Documentation updated
+- [ ] Incident response plan created
+
+## Security Vulnerability Reporting
+
+If you discover a security vulnerability:
+
+<Note>
+  **DO NOT** report security vulnerabilities through GitHub issues.
+</Note>
+
+**Report to NVIDIA PSIRT:**
+- Web: [Security Vulnerability Submission Form](https://www.nvidia.com/object/submit-security-vulnerability.html)
+- Email: psirt@nvidia.com (Use [NVIDIA PGP Key](https://www.nvidia.com/en-us/security/pgp-key) for sensitive information)
+
+**Include in your report:**
+- Product/version information
+- Type of vulnerability
+- Reproduction steps
+- Proof-of-concept code
+- Potential impact assessment
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation Tools" icon="chart-line" href="../evaluation/overview">
+    Test guardrails effectiveness
+  </Card>
+  <Card title="Monitoring Guide" icon="gauge" href="../user-guides/monitoring">
+    Set up comprehensive monitoring
+  </Card>
+</CardGroup>

@@ -1,0 +1,288 @@
+---
+title: Content Safety
+description: Check user inputs and bot outputs for unsafe content using content moderation models
+---
+
+Content safety rails protect your application by detecting and blocking unsafe content in both user inputs and bot responses.
+
+## Overview
+
+The content safety rail uses specialized content moderation models (like Llama Guard or NeMo Guard) to classify content against safety policies. It can:
+
+- Check user inputs before processing
+- Validate bot outputs before returning to users
+- Support multilingual refusal messages
+- Enable reasoning/explanation for safety decisions
+
+## Quick Start
+
+<Steps>
+  <Step title="Configure the content safety model">
+    Add a content safety model to your configuration:
+    
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-4
+      
+      - type: content_safety
+        engine: nim
+        model: nvidia/llama-3.1-nemoguard-8b-content-safety
+    ```
+  </Step>
+  
+  <Step title="Enable input and output checks">
+    Add the content safety flows to your rails:
+    
+    ```yaml config.yml
+    rails:
+      input:
+        flows:
+          - content safety check input $model=content_safety
+      output:
+        flows:
+          - content safety check output $model=content_safety
+    ```
+  </Step>
+  
+  <Step title="Test the guardrail">
+    Try sending unsafe content to verify it's blocked.
+  </Step>
+</Steps>
+
+## Configuration
+
+### Basic Configuration
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo
+  
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+rails:
+  input:
+    flows:
+      - content safety check input $model=content_safety
+  output:
+    flows:
+      - content safety check output $model=content_safety
+```
+
+### With Reasoning Enabled
+
+Enable the model to provide explanations for safety decisions:
+
+```yaml config.yml
+rails:
+  config:
+    content_safety:
+      reasoning:
+        enabled: true
+  
+  input:
+    flows:
+      - content safety check input $model=content_safety
+  output:
+    flows:
+      - content safety check output $model=content_safety
+```
+
+### Multilingual Support
+
+Provide localized refusal messages for different languages:
+
+```yaml config.yml
+rails:
+  config:
+    content_safety:
+      multilingual:
+        enabled: true
+        refusal_messages:
+          en: "I'm sorry, I can't respond to that."
+          es: "Lo siento, no puedo responder a eso."
+          fr: "Je suis désolé, je ne peux pas répondre à cela."
+          de: "Es tut mir leid, darauf kann ich nicht antworten."
+  
+  input:
+    flows:
+      - content safety check input $model=content_safety
+```
+
+**Supported languages:**
+- English (en)
+- Spanish (es)
+- Chinese (zh)
+- German (de)
+- French (fr)
+- Hindi (hi)
+- Japanese (ja)
+- Arabic (ar)
+- Thai (th)
+
+The rail automatically detects the user's language and responds with the appropriate refusal message.
+
+<Note>
+Language detection requires the `fast-langdetect` package:
+```bash
+pip install fast-langdetect
+```
+</Note>
+
+## Input vs Output Checks
+
+### Input Check
+
+Validates user messages before processing:
+
+```yaml config.yml
+rails:
+  input:
+    flows:
+      - content safety check input $model=content_safety
+```
+
+The flow has access to:
+- `$user_message` - The user's input text
+
+### Output Check
+
+Validates bot responses before returning them:
+
+```yaml config.yml
+rails:
+  output:
+    flows:
+      - content safety check output $model=content_safety
+```
+
+The flow has access to:
+- `$user_message` - The original user input
+- `$bot_message` - The generated bot response
+
+## Behavior
+
+When unsafe content is detected, the response includes:
+
+```python
+{
+  "allowed": False,  # Whether the content is safe
+  "policy_violations": ["violence", "hate"]  # List of violated policies
+}
+```
+
+### With Rails Exceptions
+
+```yaml config.yml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+
+Raises either:
+- `ContentSafetyCheckInputException` - For input violations
+- `ContentSafetyCheckOuputException` - For output violations
+
+### Without Rails Exceptions
+
+The bot refuses to respond and aborts the conversation.
+
+## Using Different Models
+
+You can use various content safety models:
+
+### Llama Guard
+
+```yaml config.yml
+models:
+  - type: llama_guard
+    engine: nim
+    model: meta/llama-guard-3-8b
+
+rails:
+  input:
+    flows:
+      - content safety check input $model=llama_guard
+```
+
+### OpenAI Moderation
+
+```yaml config.yml
+models:
+  - type: openai_moderation
+    engine: openai
+    model: text-moderation-latest
+
+rails:
+  input:
+    flows:
+      - content safety check input $model=openai_moderation
+```
+
+## Custom Flows
+
+Create custom content safety flows:
+
+```colang flows.co
+flow my content safety check
+  """Custom content safety with logging."""
+  $response = await ContentSafetyCheckInputAction(model_name="content_safety")
+  
+  if not $response["allowed"]
+    log "Content blocked: {{$response['policy_violations']}}"
+    bot say "I cannot process that request."
+    abort
+```
+
+## Accessing Policy Violations
+
+The policy violations are stored in global context variables:
+
+```colang flows.co
+flow check and log violations
+  content safety check input $model=content_safety
+  
+  # Access the results
+  if not $allowed
+    log "Violations: {{$policy_violations}}"
+```
+
+## Caching
+
+Content safety checks support model-level caching:
+
+```python
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config, enable_model_caching=True)
+```
+
+Cached results are reused for identical inputs, improving performance.
+
+## Implementation Details
+
+The content safety flows are defined in:
+- `/nemoguardrails/library/content_safety/flows.co`
+- `/nemoguardrails/library/content_safety/actions.py`
+
+Actions:
+- `ContentSafetyCheckInputAction` - Checks user input
+- `ContentSafetyCheckOutputAction` - Checks bot output
+- `DetectLanguageAction` - Detects user language for multilingual support
+
+## Temperature Settings
+
+Content safety checks use very low temperature (1e-20) for deterministic results.
+
+## See Also
+
+- [Jailbreak Detection](/built-in/jailbreak-detection)
+- [Topic Control](/built-in/topic-control)
+- [Input Rails](/guardrails/input-rails)
+- [Output Rails](/guardrails/output-rails)

@@ -1,0 +1,337 @@
+---
+title: nemoguardrails chat
+description: Start an interactive chat session with guardrails
+---
+
+## Command
+
+```bash
+nemoguardrails chat [OPTIONS]
+```
+
+Start an interactive chat session in the terminal with guardrails applied.
+
+## Options
+
+<ParamField path="--config" type="path" default="config">
+  Path to a directory containing configuration files to use. Can also point to a single configuration file.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  If the chat should be verbose and output detailed logging information including internal events and flow execution.
+</ParamField>
+
+<ParamField path="--verbose-no-llm" type="boolean" default="false">
+  If the chat should be verbose but exclude the prompts and responses for the LLM calls. Automatically enables `--verbose`.
+</ParamField>
+
+<ParamField path="--verbose-simplify" type="boolean" default="false">
+  Simplify the verbose output further.
+</ParamField>
+
+<ParamField path="--debug-level" type="array">
+  Enable debug mode which prints rich information about the flows execution. Available levels: WARNING, INFO, DEBUG. Automatically enables `--verbose`.
+</ParamField>
+
+<ParamField path="--streaming" type="boolean" default="false">
+  If the chat should use the streaming mode, if possible. Requires output rails to have streaming enabled.
+</ParamField>
+
+<ParamField path="--server-url" type="string">
+  If specified, the chat CLI will interact with a server rather than load the config locally. Must also specify `--config-id`.
+</ParamField>
+
+<ParamField path="--config-id" type="string">
+  The config_id to be used when interacting with the server (required when using `--server-url`).
+</ParamField>
+
+## Examples
+
+### Basic Usage
+
+Start a chat session with default config:
+
+```bash
+nemoguardrails chat
+```
+
+This looks for a `config` directory in the current folder.
+
+### Specify Config Directory
+
+Start chat with a specific config:
+
+```bash
+nemoguardrails chat --config=./my-bot
+```
+
+### Verbose Mode
+
+Enable detailed logging:
+
+```bash
+nemoguardrails chat --config=./my-bot --verbose
+```
+
+Output will include:
+- Internal events
+- Flow execution details
+- LLM prompts and completions
+- Context updates
+
+### Verbose Without LLM Details
+
+Show verbose output but hide LLM prompts:
+
+```bash
+nemoguardrails chat --config=./my-bot --verbose-no-llm
+```
+
+### Debug Mode
+
+Enable rich debug output:
+
+```bash
+nemoguardrails chat --config=./my-bot --debug-level INFO
+```
+
+Available levels:
+- `WARNING`: Show only warnings
+- `INFO`: Show informational messages (recommended)
+- `DEBUG`: Show detailed debug information
+
+### Streaming Mode
+
+Enable streaming for real-time responses:
+
+```bash
+nemoguardrails chat --config=./my-bot --streaming
+```
+
+Requires streaming to be enabled in config.yml:
+```yaml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+
+### Chat with Remote Server
+
+Connect to a running guardrails server:
+
+```bash
+nemoguardrails chat --server-url=http://localhost:8000 --config-id=my-bot
+```
+
+## Interactive Commands
+
+While in a chat session, you can use special commands:
+
+### Colang 1.0
+
+- Type your message and press Enter to chat
+- Press Ctrl+C twice to exit
+
+### Colang 2.x
+
+- Type your message and press Enter to chat
+- Type `!<command>` to execute debugger commands
+- Type `/<event>` to send custom events
+- Press empty Enter to check for async actions
+- Press Ctrl+C to exit
+
+#### Debugger Commands (Colang 2.x)
+
+```bash
+!help              # Show available commands
+!state             # Show current state
+!flows             # List active flows
+!context           # Show context variables
+!events            # Show recent events
+```
+
+#### Custom Events (Colang 2.x)
+
+Send custom events:
+
+```bash
+/UserSilent                           # Send simple event
+/UserExpressedEmotion(emotion="happy") # Send event with parameters
+```
+
+## Configuration Requirements
+
+### Colang 1.0
+
+Minimal config.yml:
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+
+colang_version: "1.0"
+```
+
+### Colang 2.x
+
+Minimal config.yml:
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+
+colang_version: "2.x"
+```
+
+## Example Session
+
+```bash
+$ nemoguardrails chat --config=./chatbot
+
+Starting the chat (Press Ctrl + C twice to quit) ...
+
+> Hello!
+Hello! How can I help you today?
+
+> What's the weather like?
+I apologize, but I don't have access to real-time weather information.
+
+> Tell me a joke
+Why did the scarecrow win an award? Because he was outstanding in his field!
+
+^C
+```
+
+## Streaming Example
+
+```bash
+$ nemoguardrails chat --config=./chatbot --streaming
+
+Starting the chat (Press Ctrl + C twice to quit) ...
+
+> Tell me a story
+Once upon a time, in a land far, far away, there lived a young...
+[tokens appear one by one in real-time]
+```
+
+## Verbose Output Example
+
+```bash
+$ nemoguardrails chat --config=./chatbot --verbose
+
+Starting the chat (Press Ctrl + C twice to quit) ...
+
+> Hello!
+
+[Events]
+  UtteranceUserActionFinished(final_transcript='Hello!')
+  UserMessage(text='Hello!')
+  StartUtteranceBotAction(script='Hello! How can I help you today?')
+  UtteranceBotActionFinished(final_script='Hello! How can I help you today?')
+
+[Context]
+  user_message: "Hello!"
+  bot_message: "Hello! How can I help you today?"
+
+Hello! How can I help you today?
+```
+
+## Troubleshooting
+
+### Config Not Found
+
+Make sure your config directory exists:
+```bash
+ls -la ./config
+```
+
+It should contain:
+- `config.yml` or `config.yaml`
+- At least one `.co` file (for Colang flows)
+
+### Streaming Not Supported
+
+If you get a `StreamingNotSupportedError`:
+
+1. Add to your config.yml:
+```yaml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+
+2. Or remove the `--streaming` flag
+
+### Model Not Found
+
+Ensure your API key is set:
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+Or for other providers:
+```bash
+export NVIDIA_API_KEY=nvapi-...
+```
+
+### Connection Error (Server Mode)
+
+Check if server is running:
+```bash
+curl http://localhost:8000/v1/rails/configs
+```
+
+Start server if needed:
+```bash
+nemoguardrails server --config=./configs
+```
+
+## Advanced Usage
+
+### Testing Specific Rails
+
+Create a test config with only specific rails:
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+
+rails:
+  input:
+    flows:
+      - check jailbreak
+  output:
+    flows:
+      - check hallucination
+```
+
+### Debugging Flow Execution
+
+Use debug mode to see detailed flow execution:
+
+```bash
+nemoguardrails chat --config=./my-bot --debug-level DEBUG
+```
+
+### Testing with Mock Data
+
+Set deterministic random seed for testing:
+
+```bash
+export DEBUG_MODE=1
+nemoguardrails chat --config=./my-bot --debug-level INFO
+```
+
+## Best Practices
+
+1. **Start Simple**: Begin with `--verbose-no-llm` to see flow execution without LLM noise
+2. **Use Streaming**: Enable streaming for better UX when testing long responses
+3. **Debug Incrementally**: Use debug levels progressively (INFO → DEBUG)
+4. **Test Rails**: Chat is great for testing how rails behave with different inputs
+5. **Use Server Mode**: Test against a server to verify production-like behavior

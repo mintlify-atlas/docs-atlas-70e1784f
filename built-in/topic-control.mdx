@@ -1,0 +1,265 @@
+---
+title: Topic Control
+description: Ensure conversations stay on-topic using topic safety models
+---
+
+Topic control rails help keep conversations within defined boundaries by detecting when users go off-topic.
+
+## Overview
+
+The topic safety guardrail uses specialized models to determine if user inputs are on-topic or off-topic based on your application's purpose. This helps:
+
+- Keep conversations focused on allowed topics
+- Prevent users from derailing the conversation
+- Enforce domain-specific constraints
+- Improve user experience by guiding them to relevant topics
+
+## Quick Start
+
+<Steps>
+  <Step title="Configure the topic control model">
+    Add a topic control model to your configuration:
+    
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo
+      
+      - type: topic_control
+        engine: nim
+        parameters:
+          base_url: "http://localhost:8000/v1/"
+          model_name: "llama-3.1-nemoguard-8b-topic-control"
+    ```
+  </Step>
+  
+  <Step title="Enable topic safety check">
+    Add the topic safety flow to your input rails:
+    
+    ```yaml config.yml
+    rails:
+      input:
+        flows:
+          - topic safety check input $model=topic_control
+    ```
+  </Step>
+  
+  <Step title="Define allowed topics in prompts">
+    Create a system prompt that defines your allowed topics:
+    
+    ```yaml prompts.yml
+    task_prompts:
+      - task: topic_safety_check_input $model=topic_control
+        content: |
+          You are a customer support assistant for Acme Corp.
+          
+          You may ONLY respond to questions about:
+          - Product information and features
+          - Pricing and billing
+          - Technical support
+          - Account management
+          
+          You must NOT respond to:
+          - Personal advice
+          - Political discussions
+          - Off-topic conversations
+          - Requests unrelated to Acme Corp products
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Basic Configuration
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+  - type: topic_control
+    engine: nim
+    parameters:
+      base_url: "http://localhost:8000/v1/"
+      model_name: "llama-3.1-nemoguard-8b-topic-control"
+
+rails:
+  input:
+    flows:
+      - topic safety check input $model=topic_control
+```
+
+### With NVIDIA AI Endpoints
+
+```yaml config.yml
+models:
+  - type: main
+    engine: nvidia_ai_endpoints
+    model: meta/llama-3.3-70b-instruct
+
+  - type: topic_control
+    engine: nvidia_ai_endpoints
+    model: nvidia/llama-3.1-nemoguard-8b-topic-control
+
+rails:
+  input:
+    flows:
+      - topic safety check input $model=topic_control
+```
+
+## Defining Topic Constraints
+
+The topic control model needs clear instructions about what topics are allowed. Define these in your task prompts:
+
+```yaml prompts.yml
+task_prompts:
+  - task: topic_safety_check_input $model=topic_control
+    content: |
+      You are a medical assistant chatbot.
+      
+      ALLOWED TOPICS:
+      - General health information
+      - Symptoms and conditions
+      - Medication information
+      - Appointment scheduling
+      - Medical terminology
+      
+      PROHIBITED TOPICS:
+      - Financial advice
+      - Legal advice
+      - Personal relationships
+      - Politics
+      - Non-medical topics
+      
+      If any of the above conditions are violated, please respond with "off-topic".
+      Otherwise, respond with "on-topic".
+      You must respond with "on-topic" or "off-topic".
+```
+
+<Note>
+The prompt must include the output restriction: "You must respond with 'on-topic' or 'off-topic'." This is automatically appended if not present.
+</Note>
+
+## Behavior
+
+The topic safety check evaluates the conversation history and current user input:
+
+```python
+{
+  "on_topic": False  # True if on-topic, False if off-topic
+}
+```
+
+### With Rails Exceptions
+
+```yaml config.yml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+
+Raises `TopicSafetyCheckInputException` when off-topic content is detected.
+
+### Without Rails Exceptions
+
+The bot refuses to respond and aborts the conversation.
+
+## Conversation History
+
+The topic safety check considers the full conversation history, not just the current message. This helps:
+
+- Detect topic drift over multiple turns
+- Understand context better
+- Make more accurate on-topic/off-topic decisions
+
+## Custom Flows
+
+Create custom topic control flows:
+
+```colang flows.co
+flow my topic check
+  """Custom topic safety with helpful redirection."""
+  $response = await TopicSafetyCheckInputAction(model_name="topic_control")
+  
+  if not $response["on_topic"]
+    bot say "I can only help with questions about our products. What would you like to know about our services?"
+    abort
+```
+
+## Accessing Results
+
+The topic safety result is stored in a global context variable:
+
+```colang flows.co
+flow check topic and redirect
+  topic safety check input $model=topic_control
+  
+  # The result is in $on_topic
+  if not $on_topic
+    bot provide topic guidance
+```
+
+## Multi-Model Configuration
+
+You can configure different topic control models for different purposes:
+
+```yaml config.yml
+models:
+  - type: topic_control_strict
+    engine: nim
+    model: llama-3.1-nemoguard-8b-topic-control
+  
+  - type: topic_control_lenient
+    engine: openai
+    model: gpt-4
+
+rails:
+  input:
+    flows:
+      - topic safety check input $model=topic_control_strict
+```
+
+## Caching
+
+Topic safety checks support model-level caching:
+
+```python
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config, enable_model_caching=True)
+```
+
+Cache keys are based on the entire message history, so different conversation contexts won't share cache entries.
+
+## Temperature Settings
+
+Topic safety checks use a very low temperature (0.01) for consistent, deterministic results.
+
+## Max Tokens
+
+The default max tokens is 10, which is sufficient for the "on-topic" or "off-topic" response.
+
+## Implementation Details
+
+The topic safety flows are defined in:
+- `/nemoguardrails/library/topic_safety/flows.co`
+- `/nemoguardrails/library/topic_safety/actions.py`
+
+Actions:
+- `TopicSafetyCheckInputAction` - Checks if user input is on-topic
+
+## Best Practices
+
+1. **Be specific** - Clearly define allowed and prohibited topics
+2. **Provide examples** - Include example questions for each topic category
+3. **Test edge cases** - Verify behavior on borderline topics
+4. **Give helpful feedback** - Guide users back to allowed topics when they go off-topic
+
+## See Also
+
+- [Content Safety](/built-in/content-safety)
+- [Jailbreak Detection](/built-in/jailbreak-detection)
+- [Input Rails](/guardrails/input-rails)

@@ -1,0 +1,359 @@
+---
+title: Hallucination Detection
+description: Detect hallucinations using self-consistency checking across multiple LLM responses
+---
+
+Hallucination detection helps identify when your bot generates responses that are inconsistent or potentially fabricated.
+
+## Overview
+
+The hallucination detection guardrail uses a self-consistency approach:
+
+1. Generates multiple responses to the same prompt
+2. Compares responses for agreement
+3. Flags potential hallucinations when responses diverge
+
+This is particularly useful for:
+- Detecting fabricated information
+- Identifying low-confidence responses
+- Improving reliability in critical applications
+- Providing warnings about uncertain answers
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable hallucination detection">
+    Add the hallucination checking flow to output rails:
+    
+    ```yaml config.yml
+    rails:
+      output:
+        flows:
+          - self check hallucination
+    ```
+  </Step>
+  
+  <Step title="Activate per response">
+    Enable hallucination detection for specific responses:
+    
+    ```colang flows.co
+    flow answer general question
+      user ask general question
+      
+      # Enable hallucination detection
+      $check_hallucination = True
+      
+      bot provide response
+    ```
+  </Step>
+  
+  <Step title="Configure your LLM">
+    Ensure you're using an OpenAI model or one that supports the `n` parameter:
+    
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo-instruct
+    ```
+  </Step>
+</Steps>
+
+## How It Works
+
+The hallucination detector:
+
+1. Takes the original prompt used to generate the bot's response
+2. Generates 2 additional responses with temperature=1.0
+3. Uses an LLM to check if all responses agree
+4. Returns `True` if hallucination detected, `False` otherwise
+
+```python
+# From actions.py
+HALLUCINATION_NUM_EXTRA_RESPONSES = 2
+```
+
+## Configuration
+
+### Basic Configuration
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  output:
+    flows:
+      - self check hallucination
+```
+
+### Blocking Mode
+
+Block responses when hallucinations are detected:
+
+```colang flows.co
+flow answer with hallucination check
+  user ask general question
+  
+  # Enable hallucination detection (blocking)
+  $check_hallucination = True
+  
+  bot provide response
+  # Response is automatically blocked if hallucination detected
+```
+
+### Warning Mode
+
+Provide a warning instead of blocking:
+
+```yaml config.yml
+rails:
+  output:
+    flows:
+      - hallucination warning
+```
+
+```colang flows.co
+flow answer with hallucination warning
+  user ask general question
+  
+  # Enable hallucination warning
+  $hallucination_warning = True
+  
+  bot provide response
+  # Warning is appended if hallucination detected
+```
+
+## Two Detection Modes
+
+### 1. Blocking Mode (`self check hallucination`)
+
+Blocks the response entirely if hallucination is detected:
+
+```colang flows.co
+flow self check hallucination
+  if $check_hallucination == True
+    $is_hallucination = await SelfCheckHallucinationAction()
+    $check_hallucination = False
+    
+    if $is_hallucination
+      if $system.config.enable_rails_exceptions
+        send SelfCheckHallucinationRailException(message="Hallucination detected")
+      else
+        bot inform answer unknown
+      abort
+```
+
+### 2. Warning Mode (`hallucination warning`)
+
+Adds a disclaimer to potentially hallucinated responses:
+
+```colang flows.co
+flow hallucination warning
+  bot said something
+  if $hallucination_warning == True
+    $is_hallucination = await SelfCheckHallucinationAction()
+    $hallucination_warning = False
+    
+    if $is_hallucination
+      bot inform answer prone to hallucination
+```
+
+Warning messages:
+- "The previous answer is prone to hallucination and may not be accurate. Please double check the answer using additional sources."
+- "The above response may have been hallucinated, and should be independently verified."
+
+## LLM Requirements
+
+<Warning>
+Hallucination detection is optimized for OpenAI models. Other LLMs may not work correctly.
+</Warning>
+
+Required features:
+- Support for the `n` parameter (to generate multiple completions)
+- Beam search or similar multi-completion capability
+
+Supported:
+- OpenAI models (GPT-3.5, GPT-4)
+- Models with compatible `n` parameter
+
+Not supported:
+- Most non-OpenAI models
+- Models without multi-completion support
+
+If your model doesn't support the `n` parameter, hallucination detection will return `False` (no hallucination detected) and log a warning.
+
+## Context Requirements
+
+The hallucination detector needs:
+
+- `$bot_message` - The bot's response to check
+- `$_last_bot_prompt` - The original prompt (automatically tracked)
+
+```python
+bot_response = context.get("bot_message")
+last_bot_prompt_string = context.get("_last_bot_prompt")
+```
+
+If either is missing, the detector returns `False`.
+
+## Behavior
+
+### With Rails Exceptions
+
+```yaml config.yml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+
+Raises `SelfCheckHallucinationRailException` when hallucination is detected in blocking mode.
+
+### Without Rails Exceptions
+
+In blocking mode: Bot says "I don't know the answer to that" and aborts.
+
+In warning mode: Bot adds a disclaimer about potential hallucination.
+
+## Activating Detection
+
+### Blocking Mode
+
+Set `$check_hallucination = True`:
+
+```colang flows.co
+flow user ask general question
+  user ask general question
+  $check_hallucination = True
+  bot provide response
+```
+
+### Warning Mode
+
+Set `$hallucination_warning = True`:
+
+```colang flows.co
+flow user ask general question
+  user ask general question
+  $hallucination_warning = True
+  bot provide response
+```
+
+## Custom Flows
+
+Create custom hallucination handling:
+
+```colang flows.co
+flow my hallucination handler
+  """Custom hallucination detection with logging."""
+  bot said something
+  
+  if $check_hallucination == True
+    $check_hallucination = False
+    $is_hallucination = await SelfCheckHallucinationAction()
+    
+    if $is_hallucination
+      log "Hallucination detected in response: {{$bot_message}}"
+      
+      # Provide a more helpful response
+      bot say "I'm not entirely confident in that answer. Let me rephrase:"
+      $bot_message = execute generate_alternative_response()
+      bot $bot_message
+```
+
+## Agreement Checking
+
+The detector prompts the LLM to determine agreement:
+
+```python
+prompt = llm_task_manager.render_task_prompt(
+    task=Task.SELF_CHECK_HALLUCINATION,
+    context={
+        "statement": bot_response,
+        "paragraph": ". ".join(extra_responses),
+    },
+)
+```
+
+Customize in `prompts.yml`:
+
+```yaml prompts.yml
+task_prompts:
+  - task: self_check_hallucination
+    content: |
+      Statement: {{ statement }}
+      
+      Other responses: {{ paragraph }}
+      
+      Do the other responses support the statement?
+      Answer "yes" if they agree, "no" if they disagree.
+```
+
+## Performance Considerations
+
+<Warning>
+Hallucination detection is expensive:
+- Generates 2 extra responses (with `n=2`)
+- Makes an additional LLM call for agreement checking
+- Significantly increases latency and cost
+</Warning>
+
+Best practices:
+1. Use selectively for important responses
+2. Consider using warning mode instead of blocking
+3. Only enable for general knowledge questions (not factual RAG responses)
+4. Monitor API costs carefully
+
+## Temperature Settings
+
+Extra responses use high temperature:
+```python
+temperature=1.0  # For diverse responses
+```
+
+Agreement check uses low temperature:
+```python
+temperature=config.lowest_temperature  # For consistency
+```
+
+## Implementation Details
+
+The hallucination flows are defined in:
+- `/nemoguardrails/library/hallucination/flows.co`
+- `/nemoguardrails/library/hallucination/actions.py`
+
+Actions:
+- `SelfCheckHallucinationAction` - Performs self-consistency check
+
+## Use Cases
+
+**Good use cases:**
+- General knowledge questions
+- Creative or opinion-based responses
+- Uncertain or ambiguous queries
+- Non-critical information
+
+**Poor use cases:**
+- RAG-based factual responses (use fact checking instead)
+- Time-sensitive information
+- Deterministic computations
+- Simple lookups
+
+## Alternative: BERT Score
+
+The code includes a TODO for BERT Score-based consistency:
+
+```python
+# TODO: Implement BERT-Score based consistency method
+# See details: https://arxiv.org/abs/2303.08896
+```
+
+This would provide an alternative to LLM-based agreement checking.
+
+## See Also
+
+- [Fact Checking](/built-in/fact-checking)
+- [Output Rails](/guardrails/output-rails)
+- [Self-Consistency Paper](https://arxiv.org/abs/2303.08896)

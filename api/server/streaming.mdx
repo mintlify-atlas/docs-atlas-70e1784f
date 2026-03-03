@@ -1,0 +1,332 @@
+---
+title: Streaming
+description: Server-sent events streaming for chat completions
+---
+
+## Streaming Overview
+
+The NeMo Guardrails server supports streaming responses using Server-Sent Events (SSE). When streaming is enabled, the server sends partial message deltas as they are generated, allowing for real-time response display.
+
+## Enabling Streaming
+
+To enable streaming, set `stream: true` in your request:
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Tell me a story"}],
+    "stream": true,
+    "guardrails": {"config_id": "my-config"}
+  }'
+```
+
+```python Python SDK
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"
+)
+
+stream = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Tell me a story"}],
+    stream=True,
+    extra_body={"guardrails": {"config_id": "my-config"}}
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+</CodeGroup>
+
+## Streaming with Output Rails
+
+When output rails are configured, you need to enable streaming support in your guardrails configuration:
+
+```yaml config.yml
+rails:
+  output:
+    flows:
+      - check hallucination
+      - check sensitive data
+    streaming:
+      enabled: true
+      chunk_size: 200
+      context_size: 50
+      stream_first: true
+```
+
+### Configuration Options
+
+<ParamField path="enabled" type="boolean" default="false" required>
+  Enables streaming mode for output rails.
+</ParamField>
+
+<ParamField path="chunk_size" type="integer" default="200">
+  The number of tokens in each processing chunk. This is the size of the token block on which output rails are applied.
+</ParamField>
+
+<ParamField path="context_size" type="integer" default="50">
+  The number of tokens carried over from the previous chunk to provide context for continuity in processing.
+</ParamField>
+
+<ParamField path="stream_first" type="boolean" default="true">
+  If true, token chunks are streamed immediately before output rails are applied. If false, chunks are buffered and streamed only after rails check.
+</ParamField>
+
+## Streaming Response Format
+
+Streaming responses use Server-Sent Events (SSE) format. Each chunk is sent as a `data:` line:
+
+```
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":" there"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+```
+
+### Chunk Structure
+
+<ResponseField name="id" type="string">
+  Unique identifier for the streaming response.
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Always "chat.completion.chunk".
+</ResponseField>
+
+<ResponseField name="created" type="integer">
+  Unix timestamp.
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The model being used.
+</ResponseField>
+
+<ResponseField name="choices" type="array">
+  <ResponseField name="choices[].index" type="integer">
+    The choice index (always 0).
+  </ResponseField>
+  
+  <ResponseField name="choices[].delta" type="object">
+    <ResponseField name="choices[].delta.content" type="string">
+      The content delta (token chunk).
+    </ResponseField>
+    
+    <ResponseField name="choices[].delta.role" type="string">
+      Present only in the first chunk, always "assistant".
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="choices[].finish_reason" type="string | null">
+    Null during streaming, set to "stop", "length", or "content_filter" in the final chunk.
+  </ResponseField>
+</ResponseField>
+
+## Error Handling in Streaming
+
+If an error occurs during streaming, an error chunk is sent:
+
+```json
+{
+  "error": {
+    "message": "LLM call failed",
+    "type": "server_error",
+    "code": "llm_error"
+  }
+}
+```
+
+The stream is then terminated with `data: [DONE]`.
+
+<CodeGroup>
+```python Handle Streaming Errors
+from openai import OpenAI
+import json
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed"
+)
+
+try:
+    stream = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=True,
+        extra_body={"guardrails": {"config_id": "my-config"}}
+    )
+    
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            print(chunk.choices[0].delta.content, end="")
+except Exception as e:
+    print(f"Streaming error: {e}")
+```
+</CodeGroup>
+
+## Streaming with Rails Applied
+
+When output rails are enabled, the streaming behavior depends on the configuration:
+
+### Stream-First Mode (Default)
+
+With `stream_first: true`, tokens are streamed immediately and output rails are applied in parallel:
+
+1. LLM generates tokens
+2. Tokens are immediately streamed to client
+3. Output rails process chunks in parallel
+4. If rails detect an issue, streaming is aborted with an ABORT event
+
+<CodeGroup>
+```python Stream-First Example
+async for chunk in rails.stream_async(
+    messages=[{"role": "user", "content": "Hello"}]
+):
+    # Check for ABORT event
+    if '{"event": "ABORT"' in chunk:
+        print("\nStreaming aborted by rails")
+        break
+    print(chunk, end="")
+```
+</CodeGroup>
+
+### Buffer-First Mode
+
+With `stream_first: false`, chunks are buffered and only streamed after passing rails:
+
+1. LLM generates tokens
+2. Tokens are buffered into chunks
+3. Output rails process each chunk
+4. Only approved chunks are streamed to client
+
+## Performance Considerations
+
+### Chunk Size
+
+Larger chunk sizes:
+- Reduce the number of rail checks
+- Lower latency for rail processing
+- Higher time-to-first-token
+
+Smaller chunk sizes:
+- More frequent rail checks
+- Higher rail processing overhead
+- Lower time-to-first-token
+
+### Context Size
+
+The `context_size` parameter ensures continuity between chunks:
+
+```yaml
+rails:
+  output:
+    streaming:
+      chunk_size: 200
+      context_size: 50  # Last 50 tokens from previous chunk
+```
+
+This helps rails detect issues that span chunk boundaries.
+
+## Advanced Streaming Example
+
+<CodeGroup>
+```python Custom Streaming Handler
+import asyncio
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+async def stream_with_metadata():
+    """Stream with metadata and error handling."""
+    messages = [{"role": "user", "content": "Tell me a story"}]
+    
+    full_response = ""
+    chunk_count = 0
+    
+    try:
+        async for chunk in rails.stream_async(
+            messages=messages,
+            include_metadata=True
+        ):
+            # Check for abort
+            if isinstance(chunk, dict) and chunk.get("event") == "ABORT":
+                print(f"\n\nAborted: {chunk.get('data')}")
+                break
+            
+            # Handle string chunks
+            if isinstance(chunk, str):
+                print(chunk, end="")
+                full_response += chunk
+                chunk_count += 1
+            
+            # Handle metadata chunks
+            elif isinstance(chunk, dict):
+                if "metadata" in chunk:
+                    print(f"\n[Metadata: {chunk['metadata']}]")
+    
+    except Exception as e:
+        print(f"\n\nStreaming error: {e}")
+    
+    print(f"\n\nReceived {chunk_count} chunks")
+    print(f"Total length: {len(full_response)} characters")
+
+await stream_with_metadata()
+```
+
+```python Rate-Limited Streaming
+import asyncio
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+async def stream_with_rate_limit(tokens_per_second: int = 50):
+    """Stream with artificial rate limiting."""
+    messages = [{"role": "user", "content": "Write a long story"}]
+    
+    delay = 1.0 / tokens_per_second
+    
+    async for chunk in rails.stream_async(messages=messages):
+        print(chunk, end="")
+        await asyncio.sleep(delay)
+
+await stream_with_rate_limit(tokens_per_second=30)
+```
+</CodeGroup>
+
+## Troubleshooting
+
+### StreamingNotSupportedError
+
+If you get this error, enable streaming in your config:
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+
+### Slow Streaming
+
+If streaming is slow:
+1. Increase `chunk_size` to reduce rail processing overhead
+2. Use `stream_first: true` to stream immediately
+3. Optimize your output rail flows
+
+### Incomplete Responses
+
+If responses are cut off:
+1. Check for ABORT events in the stream
+2. Review output rail logs
+3. Adjust `max_tokens` parameter

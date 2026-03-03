@@ -1,0 +1,137 @@
+---
+title: Guardrails Library
+description: Pre-built guardrails for protecting LLM applications from jailbreaks, hallucinations, sensitive data leaks, and unsafe content.
+---
+
+# Guardrails Library
+
+NeMo Guardrails includes a library of pre-built guardrails that can be activated in any configuration without writing custom code. These guardrails provide enterprise-grade protection against common LLM risks.
+
+## What is the Guardrails Library?
+
+The guardrails library is located in `nemoguardrails/library/` and contains ready-to-use implementations for:
+
+- **Input validation** - Detecting jailbreaks, prompt injections, and unsafe user inputs
+- **Output filtering** - Checking for hallucinations, policy violations, and unsafe responses
+- **Retrieval validation** - Fact-checking against retrieved documents
+- **Dialog control** - Managing conversation flows and enforcing policies
+- **Execution safety** - Validating tool calls and action parameters
+
+<Note>
+The library contains pre-built rails that can be activated in any config. You don't need to write custom actions or prompts - just enable them in your `config.yml`.
+</Note>
+
+## Categories of Built-in Guardrails
+
+Guardrails are organized by the stage where they execute:
+
+### Input Rails
+
+Execute **before** the LLM processes user input:
+
+- **Jailbreak Detection** - Heuristic and model-based detection
+- **Content Safety** - Using models like Llama Guard or NeMoGuard
+- **Self Check Input** - LLM-based input validation
+- **Sensitive Data Detection** - PII masking with Presidio
+- **Prompt Injection Detection** - Protection against injection attacks
+
+### Output Rails
+
+Execute **after** the LLM generates a response:
+
+- **Content Safety** - Validating bot responses
+- **Self Check Output** - LLM-based output validation
+- **Hallucination Detection** - Self-consistency checking
+- **Sensitive Data Masking** - Removing PII from responses
+
+### Retrieval Rails
+
+Execute during **RAG pipelines**:
+
+- **Fact Checking** - Using AlignScore or self-check methods
+- **Self Check Facts** - LLM-based factual validation
+- **Sensitive Data Detection** - Filtering PII from retrieved chunks
+
+### Dialog Rails
+
+Execute during **multi-turn conversations**:
+
+- **Topic Control** - Enforcing allowed conversation topics
+- **Flow Management** - Guided conversation patterns
+- **Policy Enforcement** - Custom business rules
+
+### Execution Rails
+
+Execute during **tool/action calls**:
+
+- **Action Input Validation** - Checking parameters
+- **Action Output Validation** - Verifying results
+- **Tool Call Authorization** - Access control
+
+## Available Integrations
+
+The library includes integrations with third-party services:
+
+| Provider | Rail Type | Use Case |
+|----------|-----------|----------|
+| **Llama Guard** | Input/Output | Meta's content safety model |
+| **NeMoGuard** | Input/Output | NVIDIA's content safety models |
+| **Presidio** | Input/Output/Retrieval | Microsoft's PII detection |
+| **AlignScore** | Retrieval | Fact checking with alignment |
+| **AutoAlign** | Output | Automated fact verification |
+| **ActiveFence** | Input/Output | Content moderation API |
+| **Cleanlab** | Input/Output | Data quality checking |
+| **Clavata** | Input | Prompt injection detection |
+| **CrowdStrike AIDR** | Input | AI threat detection |
+| **Fiddler** | Input/Output | ML monitoring |
+| **GLiNER** | Input/Output | Entity recognition |
+| **Guardrails AI** | Input/Output | Guardrails Hub integration |
+| **Pangea** | Input/Output | Security platform |
+| **PatronusAI** | Output | LLM evaluation |
+| **Private AI** | Input/Output | PII detection |
+| **Prompt Security** | Input | Injection detection |
+| **Regex** | Input/Output | Pattern matching |
+| **Trend Micro** | Input/Output | Security scanning |
+
+## Quick Start
+
+Enable a built-in guardrail in your `config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo
+
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+rails:
+  input:
+    flows:
+      - content safety check input $model=content_safety
+  output:
+    flows:
+      - content safety check output $model=content_safety
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Input Rails" icon="shield-check" href="/guardrails/input-rails">
+    Validate and sanitize user inputs before processing
+  </Card>
+  <Card title="Output Rails" icon="filter" href="/guardrails/output-rails">
+    Filter and validate LLM responses before delivery
+  </Card>
+  <Card title="Dialog Rails" icon="message" href="/guardrails/dialog-rails">
+    Control conversation flows and enforce policies
+  </Card>
+  <Card title="Retrieval Rails" icon="database" href="/guardrails/retrieval-rails">
+    Validate retrieved knowledge and check facts
+  </Card>
+  <Card title="Execution Rails" icon="code" href="/guardrails/execution-rails">
+    Secure tool calls and action execution
+  </Card>
+</CardGroup>

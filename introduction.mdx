@@ -1,0 +1,178 @@
+---
+title: Introduction
+description: Add programmable guardrails to your LLM applications with NeMo Guardrails
+---
+
+<img
+  className="block dark:hidden"
+  src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/programmable_guardrails.png"
+  alt="Programmable Guardrails"
+/>
+<img
+  className="hidden dark:block"
+  src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/programmable_guardrails.png"
+  alt="Programmable Guardrails"
+/>
+
+## What is NeMo Guardrails?
+
+NeMo Guardrails is an open-source toolkit for easily adding **programmable guardrails** to LLM-based conversational applications. Guardrails (or "rails" for short) are specific ways of controlling the output of a large language model, such as not talking about politics, responding in a particular way to specific user requests, following a predefined dialog path, using a particular language style, extracting structured data, and more.
+
+The toolkit enables developers building LLM-based applications to easily add programmable guardrails between the application code and the LLM, providing a critical control layer for production deployments.
+
+<Note>
+NeMo Guardrails is developed by NVIDIA and is licensed under Apache 2.0. Learn more in the [research paper](https://arxiv.org/abs/2310.10501) published at EMNLP 2023.
+</Note>
+
+## Why NeMo Guardrails?
+
+Building production-ready LLM applications requires more than just connecting to an API. You need control, safety, and reliability. NeMo Guardrails provides:
+
+<CardGroup cols={2}>
+  <Card title="Safety & Trust" icon="shield-check">
+    Define rails to guide and safeguard conversations. Prevent your LLM from engaging in unwanted topics or generating harmful content.
+  </Card>
+  <Card title="Controllable Dialog" icon="comments">
+    Steer the LLM to follow pre-defined conversational paths, allowing you to design interactions following conversation design best practices.
+  </Card>
+  <Card title="Secure Tool Integration" icon="plug">
+    Connect LLMs to other services (tools) seamlessly and securely with execution rails that validate inputs and outputs.
+  </Card>
+  <Card title="Multi-Layer Protection" icon="layer-group">
+    Apply guardrails at five distinct points: input, dialog, retrieval, execution, and output for comprehensive control.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### Five Types of Guardrails
+
+NeMo Guardrails supports five main types of guardrails that can be applied at different stages:
+
+<Steps>
+  <Step title="Input Rails">
+    Applied to user input before processing. Can reject or alter input (e.g., mask sensitive data, rephrase).
+  </Step>
+  <Step title="Dialog Rails">
+    Influence how the LLM is prompted and control conversational flow. Determine if actions should execute or predefined responses should be used.
+  </Step>
+  <Step title="Retrieval Rails">
+    Applied to retrieved chunks in RAG scenarios. Can reject or modify chunks before they're used to prompt the LLM.
+  </Step>
+  <Step title="Execution Rails">
+    Applied to input/output of custom actions (tools) that the LLM needs to call.
+  </Step>
+  <Step title="Output Rails">
+    Applied to LLM-generated output before returning to the user. Can reject or alter output (e.g., remove sensitive data).
+  </Step>
+</Steps>
+
+### Built-in Guardrails Library
+
+NeMo Guardrails comes with a comprehensive library of pre-built guardrails:
+
+- **LLM Self-Checking**: Input/output moderation, fact-checking, hallucination detection
+- **NVIDIA Safety Models**: Content safety, topic safety
+- **Jailbreak & Injection Detection**: Protect against prompt injection attacks
+- **Third-Party Integrations**: ActiveFence, AlignScore, and more
+
+<Warning>
+Built-in guardrails may not be suitable for all production use cases. Work with your team to ensure guardrails meet requirements for your industry and use case.
+</Warning>
+
+### Colang Modeling Language
+
+NeMo Guardrails introduces **Colang**, a modeling language specifically created for designing flexible, yet controllable, dialogue flows. Colang has a Python-like syntax and makes it easy to:
+
+- Define conversational patterns and flows
+- Specify allowed and disallowed topics
+- Create custom input/output validation rules
+- Implement complex dialog control logic
+
+<Note>
+Two versions of Colang are supported: 1.0 (default) and 2.0. Both are fully supported with extensive examples.
+</Note>
+
+## Use Cases
+
+You can use programmable guardrails in different types of applications:
+
+<AccordionGroup>
+  <Accordion title="Question Answering / RAG">
+    Enforce fact-checking and output moderation over a set of documents using Retrieval Augmented Generation.
+  </Accordion>
+  <Accordion title="Domain-specific Assistants">
+    Ensure chatbots stay on topic and follow designed conversational flows for support, sales, or specialized domains.
+  </Accordion>
+  <Accordion title="LLM Endpoints">
+    Add guardrails to your custom LLM deployments for safer customer interaction.
+  </Accordion>
+  <Accordion title="LangChain Integration">
+    Wrap guardrails around any LangChain chain or Runnable for enhanced safety and control.
+  </Accordion>
+</AccordionGroup>
+
+## LLM Vulnerability Protection
+
+NeMo Guardrails provides robust protection against common LLM vulnerabilities:
+
+<div align="center">
+  <img src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/abc-llm-vulnerability-scan-results.png" width="500" alt="LLM Vulnerability Scan Results" />
+</div>
+
+The toolkit includes mechanisms for protecting against:
+- Jailbreak attempts
+- Prompt injection attacks  
+- Sensitive data leakage
+- Off-topic conversations
+- Harmful content generation
+
+## How It Works
+
+The basic flow is simple:
+
+1. **Load a guardrails configuration** from YAML and Colang files
+2. **Create an LLMRails instance** with your configuration
+3. **Call the LLM through the guardrails layer** using `generate()` or `generate_async()`
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+# Load configuration
+config = RailsConfig.from_path("PATH/TO/CONFIG")
+rails = LLMRails(config)
+
+# Generate with guardrails
+completion = rails.generate(
+    messages=[{"role": "user", "content": "Hello world!"}]
+)
+```
+
+The input and output format is compatible with OpenAI's Chat Completions API, making integration straightforward.
+
+## What Makes NeMo Guardrails Different?
+
+While there are many approaches to adding guardrails to LLMs, NeMo Guardrails stands out by:
+
+- **Providing a unified toolkit** that integrates multiple complementary approaches (moderation endpoints, critique chains, parsing, individual guardrails)
+- **Offering dialog modeling capabilities** that enable both precise dialog control and fine-grained guardrail application
+- **Supporting multiple LLMs** including OpenAI GPT-3.5/4, LLaMa-2, Falcon, Vicuna, Mosaic, and more
+- **Being async-first** with full support for both sync and async APIs
+- **Integrating seamlessly** with LangChain and other popular frameworks
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get NeMo Guardrails installed and ready to use
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first guardrails-protected application
+  </Card>
+  <Card title="GitHub Repository" icon="github" href="https://github.com/NVIDIA-NeMo/Guardrails">
+    View the source code and contribute
+  </Card>
+  <Card title="Official Documentation" icon="book" href="https://docs.nvidia.com/nemo/guardrails">
+    Read the comprehensive documentation
+  </Card>
+</CardGroup>

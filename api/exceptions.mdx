@@ -1,0 +1,282 @@
+---
+title: Exceptions
+description: Exception classes for error handling in NeMo Guardrails
+---
+
+## Exception Hierarchy
+
+NeMo Guardrails provides a structured exception hierarchy for handling different types of errors.
+
+```
+Exception
+└── ConfigurationError
+    ├── InvalidModelConfigurationError
+    └── InvalidRailsConfigurationError
+        └── StreamingNotSupportedError
+Exception
+└── LLMCallException
+```
+
+## ConfigurationError
+
+Base class for Guardrails configuration validation errors.
+
+```python
+class ConfigurationError(ValueError):
+    pass
+```
+
+This is a base exception for all configuration-related errors.
+
+## InvalidModelConfigurationError
+
+Raised when a guardrail configuration's model is invalid.
+
+```python
+class InvalidModelConfigurationError(ConfigurationError):
+    pass
+```
+
+<CodeGroup>
+```python Example - Catching Model Config Error
+from nemoguardrails import RailsConfig
+from nemoguardrails.exceptions import InvalidModelConfigurationError
+
+try:
+    config = RailsConfig.from_content(
+        yaml_content="""
+        models:
+          - type: main
+            engine: openai
+            # Missing model field
+        """
+    )
+except InvalidModelConfigurationError as e:
+    print(f"Invalid model configuration: {e}")
+```
+</CodeGroup>
+
+### Common Causes
+
+- Missing `model` field in model configuration
+- Conflicting model name specifications (both in `model` field and `parameters`)
+- Empty or whitespace-only model names
+
+## InvalidRailsConfigurationError
+
+Raised when rails configuration is invalid.
+
+```python
+class InvalidRailsConfigurationError(ConfigurationError):
+    pass
+```
+
+<CodeGroup>
+```python Example - Catching Rails Config Error
+from nemoguardrails import RailsConfig
+from nemoguardrails.exceptions import InvalidRailsConfigurationError
+
+try:
+    config = RailsConfig.from_content(
+        yaml_content="""
+        rails:
+          input:
+            flows:
+              - nonexistent_flow
+        """
+    )
+    # This would raise error during LLMRails initialization
+except InvalidRailsConfigurationError as e:
+    print(f"Invalid rails configuration: {e}")
+```
+</CodeGroup>
+
+### Common Causes
+
+- Input/output rail references a flow that doesn't exist
+- Rail references a model that doesn't exist in config
+- Missing required prompt template
+- Invalid rail parameters
+- Passthrough mode and single call mode enabled simultaneously
+
+## StreamingNotSupportedError
+
+Raised when streaming is requested but not supported by the configuration.
+
+```python
+class StreamingNotSupportedError(InvalidRailsConfigurationError):
+    pass
+```
+
+<CodeGroup>
+```python Example - Handling Streaming Error
+from nemoguardrails import RailsConfig, LLMRails
+from nemoguardrails.exceptions import StreamingNotSupportedError
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+try:
+    async for chunk in rails.stream_async(
+        messages=[{"role": "user", "content": "Hello"}]
+    ):
+        print(chunk, end="")
+except StreamingNotSupportedError as e:
+    print(f"Streaming not supported: {e}")
+    print("Enable streaming in your config.yml:")
+    print("rails:")
+    print("  output:")
+    print("    streaming:")
+    print("      enabled: true")
+```
+</CodeGroup>
+
+### Common Causes
+
+- Output rails are configured but `rails.output.streaming.enabled` is False
+- Using `stream_async()` with configurations that don't support streaming
+
+### Fix
+
+Enable streaming in your configuration:
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+      chunk_size: 200
+      stream_first: true
+```
+
+## LLMCallException
+
+A wrapper around LLM call invocation exceptions.
+
+```python
+class LLMCallException(Exception):
+    def __init__(
+        self,
+        inner_exception: Union[BaseException, str],
+        detail: Optional[str] = None
+    )
+```
+
+<ParamField path="inner_exception" type="Union[BaseException, str]" required>
+  The original exception that occurred.
+</ParamField>
+
+<ParamField path="detail" type="Optional[str]">
+  Optional context to prepend (for example, the model name or endpoint).
+</ParamField>
+
+<CodeGroup>
+```python Example - Catching LLM Call Error
+from nemoguardrails import RailsConfig, LLMRails
+from nemoguardrails.exceptions import LLMCallException
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+try:
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+except LLMCallException as e:
+    print(f"LLM call failed: {e}")
+    print(f"Inner exception: {e.inner_exception}")
+    print(f"Detail: {e.detail}")
+```
+</CodeGroup>
+
+### Common Causes
+
+- Invalid API credentials
+- Network connectivity issues
+- Model not found or unavailable
+- Rate limiting
+- Invalid request parameters
+
+## Error Handling Best Practices
+
+### 1. Catch Specific Exceptions
+
+```python
+from nemoguardrails import RailsConfig, LLMRails
+from nemoguardrails.exceptions import (
+    InvalidModelConfigurationError,
+    InvalidRailsConfigurationError,
+    LLMCallException
+)
+
+try:
+    config = RailsConfig.from_path("config")
+    rails = LLMRails(config)
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+except InvalidModelConfigurationError as e:
+    print(f"Model configuration error: {e}")
+except InvalidRailsConfigurationError as e:
+    print(f"Rails configuration error: {e}")
+except LLMCallException as e:
+    print(f"LLM call failed: {e}")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+### 2. Validate Configuration Early
+
+```python
+def load_config_safely(path: str) -> Optional[RailsConfig]:
+    """Load config with error handling."""
+    try:
+        config = RailsConfig.from_path(path)
+        return config
+    except InvalidModelConfigurationError as e:
+        logger.error(f"Invalid model config in {path}: {e}")
+        return None
+    except InvalidRailsConfigurationError as e:
+        logger.error(f"Invalid rails config in {path}: {e}")
+        return None
+```
+
+### 3. Handle Streaming Errors Gracefully
+
+```python
+async def stream_with_fallback(rails: LLMRails, messages: List[dict]):
+    """Try streaming, fall back to non-streaming."""
+    try:
+        async for chunk in rails.stream_async(messages=messages):
+            yield chunk
+    except StreamingNotSupportedError:
+        # Fall back to non-streaming
+        response = await rails.generate_async(messages=messages)
+        yield response.get("content", "")
+```
+
+### 4. Retry LLM Calls
+
+```python
+import asyncio
+from typing import Optional
+
+async def generate_with_retry(
+    rails: LLMRails,
+    messages: List[dict],
+    max_retries: int = 3
+) -> Optional[dict]:
+    """Generate with automatic retry on LLM errors."""
+    for attempt in range(max_retries):
+        try:
+            return await rails.generate_async(messages=messages)
+        except LLMCallException as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                logger.warning(f"LLM call failed, retrying in {wait_time}s: {e}")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"LLM call failed after {max_retries} attempts: {e}")
+                raise
+    return None
+```

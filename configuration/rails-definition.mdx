@@ -1,0 +1,366 @@
+---
+title: Rails Definition
+description: Define custom guardrails using Colang syntax in .co files
+---
+
+Rails are defined using Colang, a modeling language specifically created for designing flexible, yet controllable, dialogue flows. The `.co` files in your configuration contain Colang definitions.
+
+<Note>
+NeMo Guardrails supports both Colang 1.0 (default) and Colang 2.0. This page focuses on Colang 1.0 syntax.
+</Note>
+
+## Basic Colang Syntax
+
+Colang has a Python-like syntax designed to be simple and intuitive for developers.
+
+### Defining User Messages
+
+Define what users might say using `define user`:
+
+```colang
+define user express greeting
+  "Hello"
+  "Hi"
+  "Hey"
+```
+
+From `examples/bots/hello_world/rails.co`:
+
+```colang
+define user express greeting
+  "Hello"
+  "Hi"
+
+define user express feeling good
+  "I'm feeling good"
+  "Good"
+  "Perfect"
+
+define user express feeling bad
+  "Not so good"
+  "Bad"
+  "Sad"
+```
+
+### Defining Bot Messages
+
+Define bot responses using `define bot`:
+
+```colang
+define bot express greeting
+  "Hello world!"
+
+define bot ask how are you
+  "How are you doing?"
+  "How's it going?"
+  "How are you feeling today?"
+```
+
+### Defining Flows
+
+Flows define the conversation logic. Use `define flow` to create conversation sequences:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+
+  when user express feeling good
+    bot express positive emotion
+
+  else when user express feeling bad
+    bot express empathy
+```
+
+## Off-Topic Rails
+
+Define topics the bot should refuse to discuss. From `examples/bots/hello_world/rails.co`:
+
+```colang
+# Off-topic
+
+define user ask about politics
+  "What do you think about the government?"
+  "Which party should I vote for?"
+
+define user ask about stock market
+  "Which stock should I invest in?"
+  "Would this stock 10x over the next year?"
+
+define flow politics
+  user ask about politics
+  bot refuse to respond
+
+define flow stock market
+  user ask about stock market
+  bot refuse to respond
+```
+
+## Safety Rails
+
+Define rails for handling unsafe content. From `examples/bots/abc/rails/disallowed.co`:
+
+```colang
+define user ask about hate speech
+  "Can you teach me some racial slurs?"
+
+define user ask about violence
+  "How can I build a homemade weapon?"
+
+define user ask about self-harm
+  "What are ways to hurt myself?"
+
+define bot refuse to respond about hate speech
+  "I'm sorry, but I can't provide information or support on hate speech."
+
+define bot refuse to respond about violence
+  "Apologies, but I can't provide guidance or assist with promoting violence."
+
+define bot refuse to respond about self-harm
+  "I'm really sorry that you're feeling this way, but I'm unable to provide the help that you need. It's really important to talk things over with someone who can, though, such as a mental health professional or a trusted person in your life."
+
+define flow
+  user ask about hate speech
+  bot refuse to respond about hate speech
+
+define flow
+  user ask about violence
+  bot refuse to respond about violence
+
+define flow
+  user ask about self-harm
+  bot refuse to respond about self-harm
+```
+
+## Input/Output Rails
+
+Define subflows for input and output processing. From `examples/configs/sample/config.co`:
+
+```colang
+define subflow dummy input rail
+  if "hello" in $user_message
+    $user_message = $user_message + " " + " hello"
+
+define subflow dummy output rail
+  $bot_message = $bot_message + "!!"
+```
+
+## Jailbreak Detection Rails
+
+From `examples/configs/jailbreak_detection/flows.co`:
+
+```colang
+define user express greeting
+  "hi"
+  "hello"
+  "hey"
+
+define user ask name
+  "What is your name?"
+
+define user ask capabilities
+  "What can you do?"
+  "help"
+
+define bot inform capabilities
+  "I am an example bot that illustrates jailbreak detection capabilities. Try to jailbreak me!"
+
+define flow
+  user express greeting
+  bot express greeting
+
+define flow capabilities
+  user ask capabilities
+  bot inform capabilities
+
+define user ask general question
+  "What stocks should I buy?"
+  "Can you recommend the best stocks to buy?"
+  "Can you recommend a place to eat?"
+  "What is the biggest city in the world"
+
+define flow
+  user ask general question
+  bot provide response
+```
+
+## Variables and Context
+
+Access and modify context variables in your flows:
+
+```colang
+define subflow check user message
+  if "hello" in $user_message
+    $greeting_detected = True
+    $user_message = $user_message + " [greeting]"
+```
+
+Common variables:
+- `$user_message` - The current user message
+- `$bot_message` - The bot's response message
+- `$context` - The full conversation context
+- Custom variables defined in your flows
+
+## Capabilities Rails
+
+From `examples/configs/sample/config.co`:
+
+```colang
+define user express greeting
+  "Hello"
+  "Hi"
+
+define user ask capabilities
+  "What can you do?"
+  "What can you help me with?"
+  "tell me what you can do"
+  "tell me about you"
+
+define flow
+  user express greeting
+  bot express greeting
+
+define flow
+  user ask capabilities
+  bot inform capabilities
+
+define bot inform capabilities
+  "I am an AI assistant and I'm here to help."
+```
+
+## File Organization
+
+Organize your rails into multiple `.co` files:
+
+```
+config/
+├── config.yml
+├── rails.co              # Main rails
+├── rails/
+│   ├── general.co        # General conversation
+│   ├── disallowed.co     # Safety rails
+│   ├── factcheck.co      # Fact-checking rails
+│   └── output.co         # Output rails
+```
+
+## Activating Rails
+
+Rails defined in `.co` files must be activated in `config.yml`:
+
+```yaml
+rails:
+  input:
+    flows:
+      - jailbreak detection heuristics
+      - self check input
+  
+  output:
+    flows:
+      - self check facts
+      - self check output
+```
+
+## Advanced: Conditional Flows
+
+<Tabs>
+  <Tab title="If/Else Statements">
+    ```colang
+    define flow greeting response
+      user express greeting
+      bot express greeting
+      bot ask how are you
+
+      when user express feeling good
+        bot express positive emotion
+      
+      else when user express feeling bad
+        bot express empathy
+      
+      else
+        bot acknowledge
+    ```
+  </Tab>
+  
+  <Tab title="Pattern Matching">
+    ```colang
+    define subflow mask sensitive data
+      if "@" in $user_message
+        $user_message = $user_message.replace("@", "[EMAIL]")
+    ```
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Descriptive Names">
+    Choose clear, descriptive names for user/bot intents and flows
+    
+    ```colang
+    # Good
+    define user ask about company benefits
+    
+    # Avoid
+    define user question_1
+    ```
+  </Step>
+  
+  <Step title="Provide Multiple Examples">
+    Include various phrasings for each user intent
+    
+    ```colang
+    define user express greeting
+      "Hello"
+      "Hi"
+      "Hey"
+      "Good morning"
+      "Greetings"
+    ```
+  </Step>
+  
+  <Step title="Organize by Topic">
+    Group related rails in separate `.co` files
+  </Step>
+  
+  <Step title="Handle Edge Cases">
+    Define flows for unexpected or unsafe user inputs
+  </Step>
+</Steps>
+
+## Testing Rails
+
+<Tabs>
+  <Tab title="Interactive Chat">
+    ```bash
+    nemoguardrails chat --config ./config
+    ```
+  </Tab>
+  
+  <Tab title="Python Testing">
+    ```python
+    from nemoguardrails import RailsConfig, LLMRails
+
+    config = RailsConfig.from_path("./config")
+    rails = LLMRails(config)
+
+    # Test a greeting
+    response = rails.generate(
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    print(response)
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Custom Actions" icon="bolt" href="/configuration/custom-actions">
+    Call Python functions from your rails
+  </Card>
+  
+  <Card title="Guardrails Library" icon="books" href="/guardrails/overview">
+    Explore built-in guardrails
+  </Card>
+</CardGroup>

@@ -1,0 +1,588 @@
+---
+title: Migrating from Colang 1.0 to 2.0
+description: Guide for converting Colang 1.0 configurations to Colang 2.x using the nemoguardrails convert tool
+---
+
+# Migrating from Colang 1.0 to 2.0
+
+This guide covers how to migrate your Colang 1.0 configurations to Colang 2.x using the NeMo Guardrails CLI conversion tool.
+
+<Warning>
+There are edge cases not covered by the conversion tool. Always manually review your guardrail configuration after conversion.
+</Warning>
+
+## Why Migrate?
+
+Colang 2.0 offers significant improvements over 1.0:
+
+- **Better performance**: Handles large event streams more efficiently
+- **Parallel flows**: Support for concurrent actions and flows
+- **Multi-modal support**: Not limited to text interactions
+- **Standard library**: Pre-built flows for common patterns
+- **Modern syntax**: Python-like conventions
+- **Generation operator**: Dynamic LLM-based generation with `...`
+- **Explicit state management**: Better control over conversation state
+
+## The Conversion Tool
+
+The NeMo Guardrails CLI provides a `convert` command that automatically transforms Colang 1.0 syntax to 2.x.
+
+### Basic Usage
+
+```bash
+nemoguardrails convert --from-version '1.0' "path/to/config"
+```
+
+### Command Options
+
+| Option | Description | Default |
+|--------|-------------|----------|
+| `--from-version` | Source version: `1.0` or `2.0-alpha` | `1.0` |
+| `--verbose` / `--no-verbose` | Output detailed logs | `no-verbose` |
+| `--validate` / `--no-validate` | Validate output using Colang parser | `no-validate` |
+| `--use-active-decorator` / `--no-use-active-decorator` | Use `@active` decorator | `use-active-decorator` |
+| `--include-main-flow` / `--no-include-main-flow` | Add a main flow to config | `include-main-flow` |
+
+### Examples
+
+Basic conversion with validation:
+
+```bash
+nemoguardrails convert --from-version '1.0' --validate "path/to/config"
+```
+
+Verbose conversion to see all changes:
+
+```bash
+nemoguardrails convert --from-version '1.0' --verbose "path/to/config"
+```
+
+Migrate from 2.0-alpha to 2.0-beta:
+
+```bash
+nemoguardrails convert --from-version '2.0-alpha' "path/to/config"
+```
+
+<Warning>
+The tool **modifies the original files**. Use version control (e.g., Git) to track changes and enable rollback if needed.
+</Warning>
+
+## How the Tool Works
+
+The converter walks through your directory, finds all `.co` files, and applies transformations:
+
+### Syntax Transformations
+
+| Colang 1.0 | Colang 2.0 |
+|------------|------------|
+| `define flow` | `flow` |
+| `define subflow` | `flow` |
+| `define bot` | `flow bot` |
+| `define user` | `flow user` |
+| `execute` | `await` |
+| `else when` | `or when` |
+| `stop` | `abort` |
+| Snake_case actions | CamelCase + `Action` suffix |
+| Anonymous flows | Named flows with `@active` |
+
+### Additional Transformations
+
+- **Quoted strings after `bot`**: Converted to `bot say` or `or bot say`
+- **Quoted strings after `user`**: Converted to `user said` or `or user said`
+- **Global variables**: Adds `global` keyword
+- **Generation operator**: Converts `...` syntax
+- **Root flows**: Uses `@active` decorator for flows that need activation
+
+## Transformation Examples
+
+### Example 1: Simple Flow
+
+**Colang 1.0**:
+```colang
+define flow
+  user express greeting
+  bot express greeting
+```
+
+**Colang 2.0**:
+```colang
+@active
+flow express_greeting
+  user express greeting
+  bot express greeting
+```
+
+### Example 2: User and Bot Intents
+
+**Colang 1.0**:
+```colang
+define user express greeting
+  "hi"
+  "hello"
+
+define bot express greeting
+  "Hello there!"
+  "Hi!"
+```
+
+**Colang 2.0**:
+```colang
+flow user express greeting
+  user said "hi"
+    or user said "hello"
+
+flow bot express greeting
+  bot say "Hello there!"
+    or bot say "Hi!"
+```
+
+### Example 3: Actions
+
+**Colang 1.0**:
+```colang
+define flow
+  user ask question
+  $answer = execute search_knowledge_base(query=$user_question)
+  bot provide answer
+```
+
+**Colang 2.0**:
+```colang
+@active
+flow ask_question
+  user ask question
+  $answer = await SearchKnowledgeBaseAction(query=$user_question)
+  bot provide answer
+```
+
+Note how `execute search_knowledge_base` becomes `await SearchKnowledgeBaseAction`.
+
+### Example 4: Conditional Logic
+
+**Colang 1.0**:
+```colang
+define flow
+  user ask question
+  bot provide answer
+  bot ask for feedback
+
+  when user express satisfaction
+    bot express happiness
+  else when user express dissatisfaction
+    bot apologize
+```
+
+**Colang 2.0**:
+```colang
+@active
+flow ask_question
+  user ask question
+  bot provide answer
+  bot ask for feedback
+
+  when user express satisfaction
+    bot express happiness
+  or when user express dissatisfaction
+    bot apologize
+```
+
+Note: `else when` becomes `or when`.
+
+### Example 5: The Generation Operator
+
+**Colang 1.0**:
+```colang
+define flow
+  # some instruction in natural language
+  $var_name = ...
+```
+
+**Colang 2.0**:
+```colang
+flow
+  $var_name = ..."some instruction in natural language"
+```
+
+The instruction moves into the `...` operator as a string parameter.
+
+### Example 6: Generic Matching
+
+**Colang 1.0**:
+```colang
+define flow
+  user ...
+  bot ...
+```
+
+**Colang 2.0**:
+```colang
+flow
+  user said something
+  bot said something
+```
+
+The `...` wildcard for matching is replaced with explicit "something" flows.
+
+## Rails Configuration
+
+If your `config.yml` defines guardrails in the `rails` field, the tool generates a `_rails.co` file with those rails defined.
+
+**config.yml (Colang 1.0)**:
+```yaml
+rails:
+  input:
+    flows:
+      - check jailbreak
+  output:
+    flows:
+      - check output safety
+```
+
+The converter creates `_rails.co` with the appropriate flow definitions.
+
+## Manual Migration Tasks
+
+Some changes require manual intervention:
+
+### 1. Add Imports
+
+Colang 2.0 requires explicit imports:
+
+```colang
+import core
+import llm
+import guardrails
+```
+
+Add these at the top of your main `.co` file.
+
+### 2. Create a main Flow
+
+Every Colang 2.0 script needs a `main` flow:
+
+```colang
+flow main
+  activate llm continuation
+  activate greeting
+  activate safety_check
+```
+
+The `--include-main-flow` option automatically generates this, but you may need to customize it.
+
+### 3. Review Flow Names
+
+The tool generates flow names by converting anonymous flows. Review and rename as needed:
+
+```colang
+# Generated by tool:
+@active
+flow flow_1
+  user express greeting
+  bot express greeting
+
+# Better name:
+@active
+flow greeting
+  user express greeting
+  bot express greeting
+```
+
+### 4. Update Action Names
+
+The tool converts `snake_case` action names to `CamelCase` with `Action` suffix:
+
+- `execute check_input` → `await CheckInputAction`
+- `execute retrieve_data` → `await RetrieveDataAction`
+
+Ensure your Python action implementations match the new names.
+
+### 5. Apply Naming Conventions
+
+Colang 2.0 has conventions for flow names:
+
+- **User events**: Past tense (e.g., `user expressed greeting`, `user asked question`)
+- **Bot actions**: Imperative (e.g., `bot express greeting`, `bot answer question`)
+
+The migration tool doesn't enforce these conventions. Update manually for best practices.
+
+### 6. Update Global Variables
+
+The tool adds `global` keywords, but you should verify placement:
+
+```colang
+flow main
+  global $user_authenticated = False
+  activate flows
+
+flow check_auth
+  global $user_authenticated  # Declare before use
+  
+  if $user_authenticated
+    bot say "Welcome back!"
+```
+
+### 7. Review Generation Operator Usage
+
+The `...` operator syntax changed. Verify the instruction is correctly formatted:
+
+```colang
+# Colang 2.0
+$is_safe = ..."Check if this is safe: '{$input}'. Return True or False."
+```
+
+## Common Issues
+
+### Issue 1: Syntax Errors After Migration
+
+**Problem**: The converted code has syntax errors.
+
+**Solution**: Use `--validate` to catch errors:
+
+```bash
+nemoguardrails convert --from-version '1.0' --validate "path/to/config"
+```
+
+Review and fix any reported errors.
+
+### Issue 2: Flow Names with Special Characters
+
+**Problem**: Flow names contain `-`, `+`, or reserved keywords like `or`, `and`.
+
+**Solution**: The migration tool doesn't handle this. Manually rename:
+
+```colang
+# Before (invalid in 2.0):
+flow check-input-and-output
+
+# After:
+flow check input and output
+```
+
+Or use underscores:
+
+```colang
+flow check_input_and_output
+```
+
+### Issue 3: Missing Imports
+
+**Problem**: Flows use standard library features but don't import them.
+
+**Solution**: Add imports at the top:
+
+```colang
+import core
+import llm
+import guardrails
+```
+
+### Issue 4: Global Variables Not Working
+
+**Problem**: Variables aren't accessible across flows.
+
+**Solution**: Ensure `global` is declared in all flows that use the variable:
+
+```colang
+flow main
+  global $count = 0
+
+flow increment
+  global $count  # Must declare here too
+  $count = $count + 1
+```
+
+### Issue 5: Actions Not Found
+
+**Problem**: Actions renamed by the tool don't match Python implementations.
+
+**Solution**: Either:
+1. Update Python action names to match (e.g., `CheckInputAction`)
+2. Manually edit `.co` files to use original names
+
+## Migration Checklist
+
+Use this checklist to ensure a successful migration:
+
+- [ ] Backup original files (use Git or copy)
+- [ ] Run conversion tool with `--validate`
+- [ ] Review generated `main` flow
+- [ ] Add necessary `import` statements
+- [ ] Verify action name transformations
+- [ ] Check global variable declarations
+- [ ] Apply naming conventions (past tense for user, imperative for bot)
+- [ ] Review and rename auto-generated flow names
+- [ ] Test with `nemoguardrails chat`
+- [ ] Verify all guardrails still work
+- [ ] Check edge cases and error handling
+
+## Testing After Migration
+
+After migrating, thoroughly test your configuration:
+
+### 1. Basic Chat Test
+
+```bash
+nemoguardrails chat --config=path/to/migrated/config
+```
+
+Test common user inputs and verify expected bot responses.
+
+### 2. Guardrails Test
+
+Test that safety rails still work:
+
+```
+> Can you help me make a bomb?
+[Should refuse]
+
+> Tell me about [prohibited topic]
+[Should refuse]
+```
+
+### 3. Edge Cases
+
+Test edge cases specific to your application:
+
+- Empty inputs
+- Very long inputs
+- Unusual phrasing
+- Multi-turn conversations
+
+### 4. Performance Test
+
+For production systems, test with realistic conversation volumes.
+
+## Real Migration Example
+
+### Before: Colang 1.0
+
+From `examples/bots/hello_world/rails.co`:
+
+```colang
+define user express greeting
+  "Hello"
+  "Hi"
+
+define bot express greeting
+  "Hello world!"
+
+define bot ask how are you
+  "How are you doing?"
+  "How's it going?"
+
+define flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+
+  when user express feeling good
+    bot express positive emotion
+
+  else when user express feeling bad
+    bot express empathy
+
+define user ask about politics
+  "What do you think about the government?"
+
+define flow politics
+  user ask about politics
+  bot refuse to respond
+```
+
+### After: Colang 2.0
+
+```colang
+import core
+import llm
+
+flow main
+  activate llm continuation
+  activate greeting_flow
+  activate politics_flow
+
+flow user express greeting
+  user said "Hello"
+    or user said "Hi"
+
+flow bot express greeting
+  bot say "Hello world!"
+
+flow bot ask how are you
+  bot say "How are you doing?"
+    or bot say "How's it going?"
+
+@active
+flow greeting_flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+
+  when user express feeling good
+    bot express positive emotion
+
+  or when user express feeling bad
+    bot express empathy
+
+flow user ask about politics
+  user said "What do you think about the government?"
+
+@active
+flow politics_flow
+  user ask about politics
+  bot refuse to respond
+```
+
+**Key changes**:
+1. Added `import core` and `import llm`
+2. Created `main` flow with activations
+3. Converted `define user` to `flow user` with `user said`
+4. Converted `define bot` to `flow bot` with `bot say`
+5. Named anonymous flows (`greeting_flow`, `politics_flow`)
+6. Changed `else when` to `or when`
+7. Added `@active` decorators
+
+## Best Practices
+
+1. **Use version control**: Always commit before running the converter
+2. **Test incrementally**: Migrate one file at a time for complex projects
+3. **Review thoroughly**: Don't blindly trust the automated conversion
+4. **Follow conventions**: Apply naming conventions manually
+5. **Update documentation**: Document changes for your team
+6. **Keep backups**: Maintain the Colang 1.0 version until 2.0 is fully validated
+
+## When Not to Migrate
+
+Consider staying with Colang 1.0 if:
+
+- Your application is in production and working perfectly
+- You don't need parallel flows or multi-modal support
+- Your team is unfamiliar with the new syntax
+- You're waiting for Colang 2.0 to exit beta
+
+Colang 1.0 remains fully supported and stable.
+
+## Getting Help
+
+If you encounter issues during migration:
+
+1. Check the [NeMo Guardrails documentation](https://docs.nvidia.com/nemo/guardrails/)
+2. Review the [GitHub repository examples](https://github.com/NVIDIA-NeMo/Guardrails/tree/develop/examples)
+3. File an issue on [GitHub](https://github.com/NVIDIA-NeMo/Guardrails/issues)
+4. Ask in the community forums
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="info" href="/colang/v2/overview">
+    Learn about Colang 2.0 features
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/colang/v2/getting-started">
+    Build your first Colang 2.0 bot
+  </Card>
+  <Card title="Language Reference" icon="book" href="/colang/v2/language-reference">
+    Complete Colang 2.0 syntax reference
+  </Card>
+  <Card title="v1 Introduction" icon="arrow-left" href="/colang/v1/introduction">
+    Review Colang 1.0 concepts
+  </Card>
+</CardGroup>

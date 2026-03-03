@@ -1,0 +1,437 @@
+---
+title: Colang 2.0 Getting Started
+description: Learn Colang 2.0 with hands-on examples from hello world to guardrails
+---
+
+# Getting Started with Colang 2.0
+
+This guide will walk you through creating your first Colang 2.0 bot, from a simple "Hello World" to implementing guardrails.
+
+## Prerequisites
+
+Install NeMo Guardrails:
+
+```bash
+pip install nemoguardrails
+```
+
+Ensure you're using version 0.9 or later for Colang 2.0-beta support.
+
+## Hello World
+
+Let's start with the simplest possible Colang 2.0 script.
+
+### Your First Script
+
+Create a file called `rails.co`:
+
+```colang
+import core
+
+flow main
+  user said "hi"
+  bot say "Hello World!"
+```
+
+**Key concepts**:
+
+1. **Import statement**: `import core` loads the standard library with `user said` and `bot say` flows
+2. **main flow**: The entry point of every Colang 2.0 script
+3. **user said**: Matches when the user says something specific
+4. **bot say**: Instructs the bot to respond with a message
+
+### Testing
+
+Test your script using the NeMo Guardrails CLI:
+
+```bash
+nemoguardrails chat --config=.
+```
+
+```
+> hi
+Hello World!
+
+> something else is ignored
+
+>
+```
+
+<Note>
+This example doesn't use the LLM. You must type exactly "hi" to get a response. We'll add LLM support next.
+</Note>
+
+## Adding LLM Support
+
+To make your bot more flexible, integrate LLM support.
+
+### LLM-Powered Hello World
+
+Update `rails.co`:
+
+```colang
+import core
+import llm
+
+flow main
+  activate llm continuation
+  activate greeting
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+
+flow user expressed greeting
+  user said "hi" or user said "hello"
+
+flow bot express greeting
+  bot say "Hello world!"
+```
+
+**What changed**:
+
+1. **`import llm`**: Adds LLM capabilities
+2. **`activate llm continuation`**: Enables the LLM to generate responses
+3. **`activate greeting`**: Makes the greeting flow active
+4. **Separate intent flows**: `user expressed greeting` and `bot express greeting` define intents
+
+### Configuration
+
+Create `config.yml`:
+
+```yaml
+colang_version: "2.0"
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4
+```
+
+### Testing with LLM
+
+```bash
+nemoguardrails chat --config=.
+```
+
+```
+> Hi there!
+Hello world!
+
+> Hey
+Hello world!
+
+> How are you?
+[LLM generates response]
+```
+
+Now the bot recognizes variations of "hi" and "hello" thanks to the LLM.
+
+## Understanding Flows
+
+### Flow Types
+
+Colang 2.0 has several flow types:
+
+1. **Main flow**: The entry point (`flow main`)
+2. **Active flows**: Activated and run in background
+3. **Regular flows**: Called explicitly or by event matching
+
+### Flow Syntax
+
+```colang
+flow <name> [parameters] [-> return values]
+  ["""docstring"""]
+  # flow body
+```
+
+Example with parameters:
+
+```colang
+flow bot say $text $intensity=1.0
+  """Bot says given text."""
+  await UtteranceBotAction(script=$text, intensity=$intensity)
+```
+
+### Flow Events
+
+Flows generate events:
+
+- `Started`: When a flow begins
+- `Finished`: When a flow completes successfully
+- `Failed`: When a flow fails
+
+Match these events:
+
+```colang
+flow main
+  start bot express greeting as $flow_ref
+  match $flow_ref.Finished()
+  # Continue after greeting finishes
+```
+
+## Real Example: Interaction Loop
+
+From `examples/v2_x/tutorial/interaction_loop/main.co`:
+
+```colang
+flow main
+  match UtteranceUserAction.Finished(final_transcript="Hi")
+  start UtteranceBotAction(script="Hi there! How are you?") as $ref_action_1
+  match $ref_action_1.Finished()
+  match UtteranceUserAction.Finished(final_transcript="Good and you?")
+  start UtteranceBotAction(script="Great! Thanks") as $ref_action_2
+  start GestureBotAction(gesture="Thumbs up") as $ref_action_3
+  match $ref_action_2.Finished() and $ref_action_3.Finished()
+```
+
+**Key features**:
+- **Action matching**: `match UtteranceUserAction.Finished()`
+- **Flow references**: `as $ref_action_1` stores a reference
+- **Parallel actions**: Both `$ref_action_2` and `$ref_action_3` start simultaneously
+- **Multi-modal**: Combines utterance and gesture
+
+## Adding Guardrails
+
+Let's add input guardrails to check user messages.
+
+### Input Rails Example
+
+From `examples/v2_x/tutorial/guardrails_1/rails.co`:
+
+```colang
+import core
+import guardrails
+import llm
+
+flow main
+  activate llm continuation
+  activate greeting
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+
+flow user expressed greeting
+  user said "hi" or user said "hello"
+
+flow bot express greeting
+  bot say "Hello world!"
+
+flow input rails $input_text
+  $input_safe = await check user utterance $input_text
+
+  if not $input_safe
+    bot say "I'm sorry, I can't respond to that."
+    abort
+
+flow check user utterance $input_text -> $input_safe
+  $is_safe = ..."Consider the following user utterance: '{$input_text}'. Assign 'True' if appropriate, 'False' if inappropriate."
+  print $is_safe
+  return $is_safe
+```
+
+**Key features**:
+
+1. **`import guardrails`**: Loads guardrails support
+2. **`input rails` flow**: Special flow called for every user input
+3. **Generation operator** (`...`): Uses LLM to evaluate safety
+4. **`abort`**: Stops processing if input is unsafe
+
+### The Generation Operator
+
+The `...` operator invokes the LLM at runtime:
+
+```colang
+$result = ..."Natural language instruction for the LLM"
+```
+
+In the example above, it asks the LLM to evaluate if the input is safe.
+
+## Flow Activation
+
+Flows can be activated to run in the background:
+
+```colang
+flow main
+  activate llm continuation  # Enables LLM-driven responses
+  activate greeting          # Watches for greeting events
+  activate safety_check      # Monitors for safety issues
+```
+
+Activated flows match their patterns throughout the conversation.
+
+## Working with Variables
+
+Variables in Colang 2.0 start with `$`:
+
+```colang
+flow example
+  $name = "Alice"
+  $count = 5
+  $result = await some_action()
+  
+  if $count > 0
+    bot say "Count is positive: {$count}"
+```
+
+### Global Variables
+
+Use the `global` keyword for variables shared across flows:
+
+```colang
+flow main
+  global $user_authenticated = False
+  activate authentication
+
+flow authentication
+  global $user_authenticated
+  
+  user provided credentials
+  $user_authenticated = True
+```
+
+## Keywords Reference
+
+### Core Keywords
+
+- **`flow`**: Define a flow
+- **`import`**: Import a module
+- **`activate`**: Activate a flow to run in background
+- **`match`**: Wait for an event
+- **`send`**: Send an event
+- **`start`**: Start a flow/action without waiting
+- **`await`**: Start and wait for completion
+- **`return`**: Return a value from a flow
+- **`abort`**: Stop the current flow
+- **`global`**: Declare a global variable
+
+### Control Flow
+
+- **`if`/`else`**: Conditional branching
+- **`when`/`or when`**: Event-based branching
+- **`and`/`or`**: Logical operators
+
+### Operators
+
+- **`...`**: Generation operator (LLM invocation)
+- **`as`**: Store a reference
+- **`->`**: Define return values
+
+## Standard Library Overview
+
+The standard library provides essential flows:
+
+### core Module
+
+```colang
+import core
+
+# Available flows:
+# - user said "text"
+# - bot say "text"
+# - user said something
+# - bot said something
+```
+
+### llm Module
+
+```colang
+import llm
+
+# Available flows:
+# - llm continuation (activate for LLM-driven responses)
+# - llm generate (explicit generation)
+```
+
+### guardrails Module
+
+```colang
+import guardrails
+
+# Special flows:
+# - input rails $input_text
+# - output rails $output_text
+```
+
+### timing Module
+
+```colang
+import timing
+
+# Available flows:
+# - wait $seconds
+# - user was silent $time_s
+```
+
+## Best Practices
+
+1. **Always import required modules** at the top of your file
+2. **Define `main` flow** as the entry point
+3. **Use activate** for background flows
+4. **Name flows descriptively**: Past tense for user events, imperative for bot actions
+5. **Use the `...` operator** for dynamic LLM decisions
+6. **Add docstrings** to document complex flows
+7. **Test incrementally** as you build
+
+## Complete Example: Simple Bot
+
+Here's a complete bot with greeting, capabilities, and safety:
+
+```colang
+import core
+import llm
+import guardrails
+
+flow main
+  activate llm continuation
+  activate greeting
+  activate capabilities
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+
+flow capabilities
+  user asked capabilities
+  bot explain capabilities
+
+flow user expressed greeting
+  user said "hi"
+    or user said "hello"
+    or user said "hey"
+
+flow user asked capabilities
+  user said "what can you do"
+    or user said "help"
+
+flow bot express greeting
+  bot say "Hello! I'm your assistant."
+
+flow bot explain capabilities
+  bot say "I can answer questions and help you with various tasks. Just ask!"
+
+flow input rails $input_text
+  $is_safe = ..."Is this appropriate: '{$input_text}'? Return True or False."
+  
+  if not $is_safe
+    bot say "I can't respond to that."
+    abort
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Language Reference" icon="book" href="/colang/v2/language-reference">
+    Complete Colang 2.0 syntax and features
+  </Card>
+  <Card title="Migration Guide" icon="arrow-right" href="/colang/v2/migration">
+    Migrate from Colang 1.0 to 2.0
+  </Card>
+  <Card title="Overview" icon="info" href="/colang/v2/overview">
+    Learn about Colang 2.0 features
+  </Card>
+  <Card title="Examples" icon="code" href="/colang/v1/examples">
+    See more examples
+  </Card>
+</CardGroup>

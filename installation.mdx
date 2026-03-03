@@ -1,0 +1,338 @@
+---
+title: Installation
+description: Install NeMo Guardrails and get started adding programmable guardrails to your LLM applications
+---
+
+## Prerequisites
+
+Before installing NeMo Guardrails, ensure your system meets the following requirements:
+
+### Python Version
+
+NeMo Guardrails supports the following Python versions:
+
+- Python 3.10
+- Python 3.11
+- Python 3.12
+- Python 3.13
+
+<Warning>
+Python 3.9 and earlier versions are not supported.
+</Warning>
+
+### C++ Compiler and Dev Tools
+
+NeMo Guardrails uses [annoy](https://github.com/spotify/annoy), a C++ library with Python bindings for efficient similarity search. You'll need a C++ compiler and development tools installed on your system.
+
+<Tabs>
+  <Tab title="macOS">
+    Install Xcode Command Line Tools:
+    
+    ```bash
+    xcode-select --install
+    ```
+    
+    This provides the necessary C++ compiler (clang) and build tools.
+  </Tab>
+  
+  <Tab title="Linux (Ubuntu/Debian)">
+    Install build essentials:
+    
+    ```bash
+    sudo apt-get update
+    sudo apt-get install build-essential python3-dev
+    ```
+  </Tab>
+  
+  <Tab title="Linux (RHEL/CentOS/Fedora)">
+    Install development tools:
+    
+    ```bash
+    sudo yum groupinstall "Development Tools"
+    sudo yum install python3-devel
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    Install Microsoft Visual C++ 14.0 or greater:
+    
+    1. Download and install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+    2. During installation, select "Desktop development with C++"
+    
+    Alternatively, install Visual Studio 2019 or later with C++ support.
+  </Tab>
+</Tabs>
+
+## Installation
+
+<Steps>
+  <Step title="Install via pip">
+    The simplest way to install NeMo Guardrails is using pip:
+    
+    ```bash
+    pip install nemoguardrails
+    ```
+    
+    This installs the core package with all essential dependencies.
+  </Step>
+  
+  <Step title="Verify Installation">
+    Verify that NeMo Guardrails is installed correctly:
+    
+    ```bash
+    nemoguardrails --help
+    ```
+    
+    You should see the help menu with available commands:
+    
+    ```
+    Usage: nemoguardrails [OPTIONS] COMMAND [ARGS]...
+    
+    Commands:
+      actions-server    Start a NeMo Guardrails actions server.
+      chat              Start an interactive chat session.
+      evaluate          Run an evaluation task.
+      server            Start a NeMo Guardrails server.
+    ```
+  </Step>
+  
+  <Step title="Test Python Import">
+    Test that you can import the package in Python:
+    
+    ```python
+    from nemoguardrails import LLMRails, RailsConfig
+    print("NeMo Guardrails installed successfully!")
+    ```
+    
+    If this runs without errors, you're ready to go!
+  </Step>
+</Steps>
+
+## Optional Dependencies
+
+NeMo Guardrails supports optional features through extras. Install them based on your needs:
+
+<CodeGroup>
+```bash OpenAI Support
+pip install "nemoguardrails[openai]"
+```
+
+```bash Evaluation Tools
+pip install "nemoguardrails[eval]"
+```
+
+```bash Sensitive Data Detection
+pip install "nemoguardrails[sdd]"
+```
+
+```bash Google Cloud Platform
+pip install "nemoguardrails[gcp]"
+```
+
+```bash NVIDIA AI Endpoints
+pip install "nemoguardrails[nvidia]"
+```
+
+```bash Tracing Support
+pip install "nemoguardrails[tracing]"
+```
+
+```bash Jailbreak Detection
+pip install "nemoguardrails[jailbreak]"
+```
+
+```bash Multilingual Support
+pip install "nemoguardrails[multilingual]"
+```
+
+```bash Server Features
+pip install "nemoguardrails[server]"
+```
+
+```bash All Features
+pip install "nemoguardrails[all]"
+```
+</CodeGroup>
+
+### Optional Dependencies Details
+
+<AccordionGroup>
+  <Accordion title="openai - OpenAI and LangChain OpenAI Support">
+    Includes:
+    - `openai` - Official OpenAI Python client
+    - `langchain-openai` - LangChain integrations for OpenAI models
+    
+    Required for using OpenAI models (GPT-3.5, GPT-4, etc.).
+  </Accordion>
+  
+  <Accordion title="eval - Evaluation and Benchmarking Tools">
+    Includes:
+    - `tqdm` - Progress bars for evaluation
+    - `numpy` - Numerical computing
+    - `streamlit` - Web UI for evaluation results
+    - `tornado` - Web server framework
+    
+    Required for running `nemoguardrails evaluate` command.
+  </Accordion>
+  
+  <Accordion title="sdd - Sensitive Data Detection">
+    Includes:
+    - `presidio-analyzer` - PII detection and analysis
+    - `presidio-anonymizer` - PII anonymization
+    
+    Required for detecting and masking sensitive data like emails, phone numbers, SSNs, etc.
+    
+    <Warning>Not available for Python 3.13</Warning>
+  </Accordion>
+  
+  <Accordion title="gcp - Google Cloud Platform Integration">
+    Includes:
+    - `google-cloud-language` - Google Cloud Natural Language API
+    
+    Required for using Google Cloud services.
+  </Accordion>
+  
+  <Accordion title="nvidia - NVIDIA AI Endpoints">
+    Includes:
+    - `langchain-nvidia-ai-endpoints` - LangChain integration for NVIDIA NIM
+    
+    Required for using NVIDIA NIM (NVIDIA Inference Microservices).
+  </Accordion>
+  
+  <Accordion title="tracing - OpenTelemetry Tracing">
+    Includes:
+    - `opentelemetry-api` - OpenTelemetry API
+    - `aiofiles` - Async file operations
+    
+    Required for distributed tracing and observability.
+  </Accordion>
+  
+  <Accordion title="jailbreak - Jailbreak Detection">
+    Includes:
+    - `yara-python` - Pattern matching for jailbreak detection
+    
+    Required for advanced jailbreak attempt detection.
+  </Accordion>
+  
+  <Accordion title="multilingual - Language Detection">
+    Includes:
+    - `fast-langdetect` - Fast language detection
+    
+    Required for multilingual content safety.
+  </Accordion>
+  
+  <Accordion title="server - Server Features">
+    Includes:
+    - `aiofiles` - Async file operations
+    - `openai` - OpenAI client for server endpoints
+    
+    Required for running `nemoguardrails server` with full features.
+  </Accordion>
+</AccordionGroup>
+
+## Development Installation
+
+For contributing to NeMo Guardrails or running tests, install from source:
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/NVIDIA-NeMo/Guardrails.git
+    cd Guardrails
+    ```
+  </Step>
+  
+  <Step title="Install with Poetry">
+    NeMo Guardrails uses Poetry for dependency management:
+    
+    ```bash
+    pip install poetry
+    poetry install --with dev
+    ```
+  </Step>
+  
+  <Step title="Activate the Environment">
+    ```bash
+    poetry shell
+    ```
+  </Step>
+  
+  <Step title="Run Tests">
+    ```bash
+    pytest
+    ```
+  </Step>
+</Steps>
+
+## Docker Installation
+
+You can also run NeMo Guardrails in a Docker container:
+
+```bash
+# Build the image
+docker build -t nemoguardrails .
+
+# Run the server
+docker run -p 8000:8000 -v $(pwd)/config:/config nemoguardrails \
+  nemoguardrails server --config /config
+```
+
+<Note>
+For detailed Docker usage, see the [Using Docker](https://docs.nvidia.com/nemo/guardrails/user-guides/advanced/using-docker.html) guide in the official documentation.
+</Note>
+
+## Environment Variables
+
+For using LLM providers, you'll typically need API keys set as environment variables:
+
+```bash OpenAI
+export OPENAI_API_KEY="your-api-key-here"
+```
+
+```bash Anthropic
+export ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+```bash Cohere
+export COHERE_API_KEY="your-api-key-here"
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Microsoft Visual C++ 14.0 or greater is required">
+    **Windows users**: Install Microsoft C++ Build Tools as described in the prerequisites section.
+  </Accordion>
+  
+  <Accordion title="Error: command 'gcc' failed">
+    **Linux/macOS users**: Install build tools and Python development headers:
+    
+    ```bash Ubuntu/Debian
+    sudo apt-get install build-essential python3-dev
+    ```
+    
+    ```bash macOS
+    xcode-select --install
+    ```
+  </Accordion>
+  
+  <Accordion title="ImportError: No module named 'annoy'">
+    The annoy library didn't install correctly. This usually means the C++ compiler isn't available. Install the required build tools for your platform.
+  </Accordion>
+  
+  <Accordion title="Version conflicts with existing packages">
+    Consider using a virtual environment to isolate dependencies:
+    
+    ```bash
+    python -m venv nemo-env
+    source nemo-env/bin/activate  # On Windows: nemo-env\Scripts\activate
+    pip install nemoguardrails
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+  Now that you have NeMo Guardrails installed, follow the quickstart guide to create your first guardrails configuration.
+</Card>

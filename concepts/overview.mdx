@@ -1,0 +1,228 @@
+---
+title: Overview
+description: Introduction to programmable guardrails for LLM-based applications
+---
+
+# Core Concepts Overview
+
+NeMo Guardrails is an open-source toolkit for easily adding **programmable guardrails** to LLM-based conversational applications. Guardrails (or "rails" for short) are specific ways of controlling the output of a large language model, such as not talking about politics, responding in a particular way to specific user requests, following a predefined dialog path, using a particular language style, extracting structured data, and more.
+
+## What Are Programmable Guardrails?
+
+Programmable guardrails sit between your application code and the LLM, providing a flexible layer of control over how the LLM behaves. Rather than relying solely on prompts or post-processing, guardrails enable you to define explicit rules and flows that govern the conversation.
+
+<Frame>
+  <img src="https://github.com/NVIDIA-NeMo/Guardrails/raw/develop/docs/_static/images/programmable_guardrails.png" alt="Programmable Guardrails Architecture" />
+</Frame>
+
+## Key Benefits
+
+Programmable guardrails provide several critical advantages:
+
+<CardGroup cols={2}>
+  <Card title="Build Trustworthy Applications" icon="shield-check">
+    Define rails to guide and safeguard conversations. Choose to define the behavior of your LLM-based application on specific topics and prevent it from engaging in discussions on unwanted topics.
+  </Card>
+  
+  <Card title="Connect Services Securely" icon="link">
+    Connect an LLM to other services (tools) seamlessly and securely. Validate tool inputs and outputs with execution rails.
+  </Card>
+  
+  <Card title="Controllable Dialog" icon="messages">
+    Steer the LLM to follow pre-defined conversational paths, allowing you to design the interaction following conversation design best practices and enforce standard operating procedures.
+  </Card>
+  
+  <Card title="Multi-Stage Protection" icon="layer-group">
+    Apply different types of guardrails at five distinct stages: input, retrieval, dialog, execution, and output.
+  </Card>
+</CardGroup>
+
+## Core Framework Components
+
+The NeMo Guardrails framework consists of several key components that work together:
+
+### RailsConfig
+
+The `RailsConfig` class defines the complete configuration for your guardrails, including:
+
+- **LLM Models**: Specify which language models to use (main, embeddings, etc.)
+- **Rails**: Configure which guardrails are active and how they operate
+- **Colang Definitions**: Load dialog flows and message definitions from `.co` files
+- **Custom Actions**: Register Python functions as callable actions
+- **Instructions**: Provide context and guidelines to the LLM
+
+```python
+from nemoguardrails import RailsConfig
+
+# Load configuration from a directory
+config = RailsConfig.from_path("./config")
+```
+
+### LLMRails
+
+The `LLMRails` class is the main entry point for using guardrails. It wraps your LLM with the configured guardrails:
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+<Note>
+  The `generate` method uses the same message format as the OpenAI Chat Completions API, making it easy to integrate with existing applications.
+</Note>
+
+### Event-Driven Runtime
+
+NeMo Guardrails uses an **event-driven runtime** to process conversations. Every interaction generates events that flow through the system:
+
+1. **User utterance** → `UtteranceUserActionFinished` event
+2. **Canonical form generation** → `UserIntent` event
+3. **Next step decision** → `BotIntent` or action events
+4. **Bot response generation** → `StartUtteranceBotAction` event
+
+This event-driven design allows guardrails to intercept and modify the conversation at any stage.
+
+## Async-First Architecture
+
+NeMo Guardrails is built with an **async-first** design. The core mechanics are implemented using Python's async model, providing several advantages:
+
+<AccordionGroup>
+  <Accordion title="Better Concurrency">
+    Multiple users can be served concurrently without blocking. When one request waits for an LLM response, others can continue processing.
+  </Accordion>
+  
+  <Accordion title="Dual API Support">
+    Both synchronous and asynchronous versions of methods are available:
+    - Sync: `rails.generate(messages)`
+    - Async: `await rails.generate_async(messages)`
+  </Accordion>
+  
+  <Accordion title="Efficient Resource Usage">
+    Actions and LLM calls run asynchronously, making better use of system resources during I/O operations.
+  </Accordion>
+</AccordionGroup>
+
+```python
+import asyncio
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Async usage
+async def chat():
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    return response
+
+response = asyncio.run(chat())
+```
+
+## Configuration Structure
+
+A typical guardrails configuration follows this structure:
+
+```
+config/
+├── config.yml          # Main configuration file
+├── config.py           # Custom initialization code (optional)
+├── actions.py          # Custom Python actions (optional)
+├── rails.co            # Colang flow definitions
+└── kb/                 # Knowledge base documents (optional)
+    └── *.md
+```
+
+### Sample config.yml
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  input:
+    flows:
+      - check jailbreak
+      - mask sensitive data on input
+  
+  output:
+    flows:
+      - self check facts
+      - activefence moderation
+```
+
+## Use Cases
+
+You can use programmable guardrails in different types of applications:
+
+<Tabs>
+  <Tab title="Question Answering">
+    Enforce fact-checking and output moderation over a set of documents (RAG).
+    
+    ```yaml
+    rails:
+      retrieval:
+        flows:
+          - check relevance
+      output:
+        flows:
+          - self check facts
+          - check hallucination
+    ```
+  </Tab>
+  
+  <Tab title="Domain Assistants">
+    Ensure the assistant stays on topic and follows designed conversational flows.
+    
+    ```colang
+    define user ask about politics
+      "What do you think about the government?"
+    
+    define flow
+      user ask about politics
+      bot refuse to respond
+    ```
+  </Tab>
+  
+  <Tab title="LLM Endpoints">
+    Add guardrails to your custom LLM for safer customer interaction.
+    
+    ```yaml
+    rails:
+      input:
+        flows:
+          - jailbreak detection
+      output:
+        flows:
+          - content safety check
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Guardrail Types" icon="shield" href="/concepts/guardrail-types">
+    Learn about the five types of rails and when to use them
+  </Card>
+  
+  <Card title="Colang DSL" icon="code" href="/concepts/colang">
+    Understand the Colang language for defining flows and rails
+  </Card>
+  
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    Deep dive into the runtime and processing pipeline
+  </Card>
+  
+  <Card title="Get Started" icon="rocket" href="/quickstart">
+    Start building your first guardrails configuration
+  </Card>
+</CardGroup>

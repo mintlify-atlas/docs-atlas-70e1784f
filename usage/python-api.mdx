@@ -1,0 +1,452 @@
+---
+title: Python API
+description: Using NeMo Guardrails programmatically through the Python API
+---
+
+NeMo Guardrails provides a straightforward Python API for adding programmable guardrails to your LLM-based applications. The API is async-first and integrates seamlessly with your existing code.
+
+## Core Classes
+
+### LLMRails
+
+The `LLMRails` class is the main entry point for using guardrails programmatically.
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+```
+
+#### Initialization
+
+<CodeGroup>
+```python From Path
+# Load configuration from a directory
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+```
+
+```python With Custom LLM
+from langchain_openai import ChatOpenAI
+
+# Use a custom LLM instance
+config = RailsConfig.from_path("path/to/config")
+llm = ChatOpenAI(model="gpt-4")
+rails = LLMRails(config, llm=llm)
+```
+
+```python Verbose Mode
+# Enable verbose logging
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config, verbose=True)
+```
+</CodeGroup>
+
+**Constructor Parameters:**
+
+<ParamField path="config" type="RailsConfig" required>
+  A rails configuration loaded from a directory or created programmatically.
+</ParamField>
+
+<ParamField path="llm" type="BaseLLM | BaseChatModel" default="None">
+  An optional LLM engine to use. If provided, this will be used as the main LLM and will take precedence over any main LLM specified in the config.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether the logging should be verbose or not.
+</ParamField>
+
+### RailsConfig
+
+The `RailsConfig` class represents a guardrails configuration.
+
+#### Loading Configuration
+
+```python
+from nemoguardrails import RailsConfig
+
+# Load from a directory
+config = RailsConfig.from_path("path/to/config")
+```
+
+<ParamField path="from_path" type="classmethod">
+  Loads a `RailsConfig` from the specified path. The path should contain:
+  - `config.yml` or `config.yaml` - Main configuration file
+  - `*.co` - Colang files defining rails and flows
+  - `config.py` - Optional initialization code
+  - `actions.py` - Optional custom actions
+</ParamField>
+
+## Generation Methods
+
+### generate_async()
+
+The primary async method for generating responses with guardrails applied.
+
+```python
+response = await rails.generate_async(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+**Parameters:**
+
+<ParamField path="prompt" type="str" default="None">
+  The prompt to be used for completion. Cannot be used with `messages`.
+</ParamField>
+
+<ParamField path="messages" type="List[dict]" default="None">
+  The history of messages to generate the next message. Cannot be used with `prompt`.
+</ParamField>
+
+<ParamField path="options" type="GenerationOptions | dict" default="None">
+  Options specific for the generation (e.g., output variables, logging).
+</ParamField>
+
+<ParamField path="state" type="State | dict" default="None">
+  The state object that should be used as the starting point.
+</ParamField>
+
+<ParamField path="streaming_handler" type="StreamingHandler" default="None">
+  If specified, and the config supports streaming, the provided handler will be used for streaming.
+</ParamField>
+
+**Returns:**
+
+- When using `prompt`: Returns a string with the completion
+- When using `messages`: Returns a dict with the assistant's message
+- When using `options`: Returns a `GenerationResponse` object with additional metadata
+
+#### Message Format
+
+Messages follow the OpenAI Chat Completions API format:
+
+```python
+messages = [
+    {"role": "context", "content": {"user_name": "John"}},
+    {"role": "user", "content": "Hello! How are you?"},
+    {"role": "assistant", "content": "I am fine, thank you!"},
+    {"role": "event", "event": {"type": "UserSilent"}}
+]
+```
+
+**Supported roles:**
+- `user` - User messages
+- `assistant` - Assistant/bot messages
+- `context` - Context variables (must be a dict)
+- `event` - Custom events
+- `system` - System messages
+- `tool` - Tool/function call results
+
+### generate()
+
+Synchronous wrapper around `generate_async()`.
+
+```python
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+<Note>
+The synchronous method is provided for convenience but internally uses the async API. For best performance, use `generate_async()` in async contexts.
+</Note>
+
+## Streaming
+
+### stream_async()
+
+Streams the response token-by-token with guardrails applied.
+
+```python
+async for chunk in rails.stream_async(
+    messages=[{"role": "user", "content": "Tell me a story"}]
+):
+    print(chunk, end="", flush=True)
+```
+
+**Parameters:**
+
+<ParamField path="prompt" type="str" default="None">
+  The prompt to be used for completion.
+</ParamField>
+
+<ParamField path="messages" type="List[dict]" default="None">
+  The history of messages.
+</ParamField>
+
+<ParamField path="options" type="GenerationOptions | dict" default="None">
+  Generation options.
+</ParamField>
+
+<ParamField path="state" type="State | dict" default="None">
+  The state object to use as starting point.
+</ParamField>
+
+<ParamField path="include_metadata" type="bool" default="False">
+  If True, yields dicts with `text` and `metadata` keys. If False, yields strings.
+</ParamField>
+
+<Warning>
+Streaming with output rails requires enabling streaming support in your configuration:
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+</Warning>
+
+## Complete Examples
+
+### Basic Usage
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+# Load configuration
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Generate a response
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(response["content"])
+# Output: "Hi! How can I help you?"
+```
+
+### Using Async API
+
+```python
+import asyncio
+from nemoguardrails import LLMRails, RailsConfig
+
+async def main():
+    config = RailsConfig.from_path("./config")
+    rails = LLMRails(config)
+    
+    # Async generation
+    response = await rails.generate_async(
+        messages=[
+            {"role": "user", "content": "What is the weather like?"}
+        ]
+    )
+    
+    print(response["content"])
+
+asyncio.run(main())
+```
+
+### With Generation Options
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+from nemoguardrails.rails.llm.options import GenerationOptions
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Create generation options
+options = GenerationOptions(
+    output_vars=True,  # Return context variables
+    log={
+        "activated_rails": True,
+        "llm_calls": True,
+        "internal_events": True
+    }
+)
+
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello"}],
+    options=options
+)
+
+# Access the response
+print(response.response[0]["content"])
+
+# Access output variables
+print(response.output_data)
+
+# Access logs
+if response.log:
+    print(f"Activated rails: {response.log.activated_rails}")
+    print(f"LLM calls: {len(response.log.llm_calls)}")
+```
+
+### Streaming Example
+
+```python
+import asyncio
+from nemoguardrails import LLMRails, RailsConfig
+
+async def stream_example():
+    config = RailsConfig.from_path("./config")
+    rails = LLMRails(config)
+    
+    print("Bot: ", end="", flush=True)
+    
+    async for chunk in rails.stream_async(
+        messages=[{"role": "user", "content": "Tell me a joke"}]
+    ):
+        print(chunk, end="", flush=True)
+    
+    print()  # New line after streaming
+
+asyncio.run(stream_example())
+```
+
+### With Context Variables
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Include context in messages
+messages = [
+    {
+        "role": "context",
+        "content": {
+            "user_name": "Alice",
+            "user_age": 25,
+            "preferences": {"language": "English"}
+        }
+    },
+    {"role": "user", "content": "What's my name?"}
+]
+
+response = rails.generate(messages=messages)
+print(response["content"])
+# Output: "Your name is Alice."
+```
+
+### With Custom LLM
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+from langchain_openai import ChatOpenAI
+
+config = RailsConfig.from_path("./config")
+
+# Use GPT-4 instead of the configured model
+llm = ChatOpenAI(model="gpt-4", temperature=0.7)
+rails = LLMRails(config, llm=llm)
+
+response = rails.generate(
+    messages=[{"role": "user", "content": "Explain quantum computing"}]
+)
+
+print(response["content"])
+```
+
+### Conversation History
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Maintain conversation history
+history = []
+
+while True:
+    user_input = input("You: ")
+    if user_input.lower() == "quit":
+        break
+    
+    # Add user message to history
+    history.append({"role": "user", "content": user_input})
+    
+    # Generate response with full history
+    response = rails.generate(messages=history)
+    
+    # Add bot response to history
+    history.append(response)
+    
+    print(f"Bot: {response['content']}")
+```
+
+## Advanced Features
+
+### Updating the LLM
+
+You can update the LLM used by the rails instance:
+
+```python
+from langchain_openai import ChatOpenAI
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Update to use a different model
+new_llm = ChatOpenAI(model="gpt-4-turbo")
+rails.update_llm(new_llm)
+```
+
+### Registering Custom Actions
+
+Register custom Python functions as actions:
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+def custom_action(context: dict):
+    """A custom action that can be called from Colang."""
+    user_name = context.get("user_name", "User")
+    return f"Hello, {user_name}!"
+
+# Register the action
+rails.runtime.register_action(custom_action, "custom_action")
+
+response = rails.generate(
+    messages=[{"role": "user", "content": "Greet me"}]
+)
+```
+
+## Error Handling
+
+```python
+from nemoguardrails import LLMRails, RailsConfig
+from nemoguardrails.exceptions import (
+    InvalidRailsConfigurationError,
+    StreamingNotSupportedError
+)
+
+try:
+    config = RailsConfig.from_path("./config")
+    rails = LLMRails(config)
+    
+    response = rails.generate(
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    
+except InvalidRailsConfigurationError as e:
+    print(f"Configuration error: {e}")
+except StreamingNotSupportedError as e:
+    print(f"Streaming error: {e}")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Server API" icon="server" href="/usage/server">
+    Deploy guardrails as a REST API server
+  </Card>
+  <Card title="CLI Tools" icon="terminal" href="/usage/cli">
+    Use command-line tools for testing and development
+  </Card>
+  <Card title="LangChain Integration" icon="link" href="/usage/langchain-integration">
+    Integrate with LangChain chains and agents
+  </Card>
+  <Card title="Configuration Guide" icon="gear" href="/configuration/rails-definition">
+    Learn how to configure guardrails
+  </Card>
+</CardGroup>

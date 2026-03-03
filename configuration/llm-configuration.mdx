@@ -1,0 +1,531 @@
+---
+title: LLM Configuration
+description: Configure different LLM providers for NeMo Guardrails
+---
+
+NeMo Guardrails supports multiple LLM providers including OpenAI, NVIDIA NIM, Google Vertex AI, and HuggingFace. Each provider requires specific configuration in your `config.yml` file.
+
+## Supported LLM Providers
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="openai">
+    GPT-3.5, GPT-4, and other OpenAI models
+  </Card>
+  
+  <Card title="NVIDIA NIM" icon="nvidia">
+    LLama, Nemotron, and NVIDIA optimized models
+  </Card>
+  
+  <Card title="Vertex AI" icon="google">
+    Google's Gemini and PaLM models
+  </Card>
+  
+  <Card title="HuggingFace" icon="huggingface">
+    Open-source models via pipeline or endpoints
+  </Card>
+</CardGroup>
+
+## OpenAI Configuration
+
+### Basic OpenAI Setup
+
+From `examples/bots/hello_world/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+```
+
+### OpenAI with Parameters
+
+From `examples/configs/sample/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+    parameters:
+      temperature: 0.7
+      max_tokens: 256
+      top_p: 1.0
+      frequency_penalty: 0.0
+      presence_penalty: 0.0
+```
+
+### Supported OpenAI Models
+
+<ParamField path="model" type="string">
+  - `gpt-4o` - Latest GPT-4 Omni model
+  - `gpt-4o-mini` - Smaller, faster GPT-4 Omni
+  - `gpt-4-turbo` - GPT-4 Turbo
+  - `gpt-4` - GPT-4 base model
+  - `gpt-3.5-turbo` - GPT-3.5 Turbo (chat)
+  - `gpt-3.5-turbo-instruct` - GPT-3.5 Instruct (completion)
+</ParamField>
+
+### Environment Variables
+
+Set your OpenAI API key:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+## NVIDIA NIM Configuration
+
+### Basic NIM Setup
+
+From `examples/configs/llm/nim/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: nim
+    model: meta/llama3-8b-instruct
+    parameters:
+      base_url: http://localhost:7331/v1
+```
+
+### NIM with Cloud API
+
+```yaml
+models:
+  - type: main
+    engine: nim
+    model: meta/llama-3.3-70b-instruct
+    parameters:
+      base_url: https://integrate.api.nvidia.com/v1
+      api_key: ${NVIDIA_API_KEY}
+```
+
+### Multiple NIM Models
+
+From `examples/configs/content_safety/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: nim
+    model: meta/llama-3.3-70b-instruct
+
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+```
+
+### Popular NIM Models
+
+<Tabs>
+  <Tab title="LLama Models">
+    ```yaml
+    models:
+      - type: main
+        engine: nim
+        model: meta/llama3-8b-instruct
+        # or
+        # model: meta/llama-3.3-70b-instruct
+        # model: meta/llama-3.1-405b-instruct
+    ```
+  </Tab>
+  
+  <Tab title="Nemotron Models">
+    From `examples/configs/nemotron/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: nim
+        model: nvidia/nemotron-4-340b-instruct
+    ```
+  </Tab>
+  
+  <Tab title="Safety Models">
+    ```yaml
+    models:
+      - type: content_safety
+        engine: nim
+        model: nvidia/llama-3.1-nemoguard-8b-content-safety
+      
+      - type: jailbreak_detection
+        engine: nim
+        model: nvidia/nemoguard-jailbreak-detection
+    ```
+  </Tab>
+  
+  <Tab title="Deepseek">
+    From `examples/configs/llm/deepseek-r1/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: nim
+        model: deepseek/deepseek-r1
+    ```
+  </Tab>
+</Tabs>
+
+### Environment Variables
+
+For NVIDIA NIM cloud:
+
+```bash
+export NVIDIA_API_KEY="nvapi-..."
+```
+
+## Google Vertex AI Configuration
+
+From `examples/configs/llm/vertexai/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: vertexai
+    model: gemini-1.0-pro
+```
+
+### Vertex AI with Parameters
+
+```yaml
+models:
+  - type: main
+    engine: vertexai
+    model: gemini-1.5-pro
+    parameters:
+      temperature: 0.7
+      max_output_tokens: 1024
+      top_p: 0.95
+      top_k: 40
+```
+
+### Supported Vertex AI Models
+
+<ParamField path="model" type="string">
+  - `gemini-1.5-pro` - Latest Gemini Pro
+  - `gemini-1.0-pro` - Gemini Pro 1.0
+  - `gemini-1.5-flash` - Fast Gemini model
+</ParamField>
+
+### Authentication
+
+Vertex AI requires Google Cloud authentication:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="path/to/credentials.json"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+```
+
+## HuggingFace Configuration
+
+### HuggingFace Pipeline
+
+From `examples/configs/llm/hf_pipeline_llama2/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: hf_pipeline_llama2
+    model: meta-llama/Llama-2-7b-chat-hf
+    parameters:
+      device_map: auto
+      torch_dtype: float16
+```
+
+### Other HuggingFace Pipeline Examples
+
+<Tabs>
+  <Tab title="Vicuna">
+    From `examples/configs/llm/hf_pipeline_vicuna/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: hf_pipeline_vicuna
+        model: lmsys/vicuna-7b-v1.5
+    ```
+  </Tab>
+  
+  <Tab title="Falcon">
+    From `examples/configs/llm/hf_pipeline_falcon/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: hf_pipeline_falcon
+        model: tiiuae/falcon-7b-instruct
+    ```
+  </Tab>
+  
+  <Tab title="Mosaic">
+    From `examples/configs/llm/hf_pipeline_mosaic/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: hf_pipeline_mosaic
+        model: mosaicml/mpt-7b-chat
+    ```
+  </Tab>
+  
+  <Tab title="Dolly">
+    From `examples/configs/llm/hf_pipeline_dolly/config.yml`:
+    
+    ```yaml
+    models:
+      - type: main
+        engine: hf_pipeline_dolly
+        model: databricks/dolly-v2-3b
+    ```
+  </Tab>
+</Tabs>
+
+### HuggingFace Endpoint
+
+From `examples/configs/llm/hf_endpoint/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: hf_endpoint
+    model: your-model-endpoint
+    parameters:
+      endpoint_url: https://your-endpoint.huggingface.cloud
+```
+
+### Environment Variables
+
+```bash
+export HUGGINGFACEHUB_API_TOKEN="hf_..."
+```
+
+## Model Parameters
+
+Common parameters across providers:
+
+<ParamField path="temperature" type="float" default="0.7">
+  Controls randomness. Lower values make output more deterministic
+</ParamField>
+
+<ParamField path="max_tokens" type="integer">
+  Maximum number of tokens to generate
+</ParamField>
+
+<ParamField path="top_p" type="float" default="1.0">
+  Nucleus sampling parameter
+</ParamField>
+
+<ParamField path="frequency_penalty" type="float" default="0.0">
+  Penalizes repeated tokens (OpenAI)
+</ParamField>
+
+<ParamField path="presence_penalty" type="float" default="0.0">
+  Penalizes tokens based on presence (OpenAI)
+</ParamField>
+
+<ParamField path="base_url" type="string">
+  Custom API endpoint URL (NIM, custom deployments)
+</ParamField>
+
+<ParamField path="api_key" type="string">
+  API key for authentication. Use environment variables for security
+</ParamField>
+
+## Multiple Model Types
+
+You can configure different models for different purposes:
+
+```yaml
+models:
+  # Main conversation model
+  - type: main
+    engine: openai
+    model: gpt-4o
+
+  # Content safety checking
+  - type: content_safety
+    engine: nim
+    model: nvidia/llama-3.1-nemoguard-8b-content-safety
+
+  # Jailbreak detection
+  - type: jailbreak_detection
+    engine: nim
+    model: nvidia/nemoguard-jailbreak-detection
+
+  # Embedding model for retrieval
+  - type: embeddings
+    engine: openai
+    model: text-embedding-ada-002
+```
+
+## Streaming Support
+
+Enable streaming for real-time responses. From `examples/configs/streaming/config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: openai
+    model: gpt-4
+
+rails:
+  dialog:
+    single_call:
+      enabled: True
+```
+
+Use streaming in Python:
+
+```python
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Streaming response
+async for chunk in rails.stream_async(
+    messages=[{"role": "user", "content": "Tell me a story"}]
+):
+    print(chunk, end="", flush=True)
+```
+
+## Custom LLM Providers
+
+You can add custom LLM providers by implementing the LLM interface:
+
+```python
+# config/config.py
+from nemoguardrails.llm.providers import register_llm_provider
+from nemoguardrails.llm.base import BaseLLM
+
+class CustomLLM(BaseLLM):
+    """Custom LLM implementation."""
+    
+    async def generate(self, prompt: str, **kwargs):
+        # Your custom generation logic
+        pass
+
+# Register the provider
+register_llm_provider("custom_engine", CustomLLM)
+```
+
+Then use in `config.yml`:
+
+```yaml
+models:
+  - type: main
+    engine: custom_engine
+    model: your-custom-model
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Environment Variables">
+    Never hardcode API keys in config files
+    
+    ```yaml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-4
+        parameters:
+          api_key: ${OPENAI_API_KEY}  # Good
+          # api_key: sk-hardcoded-key  # Bad!
+    ```
+  </Step>
+  
+  <Step title="Choose Appropriate Models">
+    - Use smaller models (e.g., `gpt-4o-mini`) for simple tasks
+    - Use larger models (e.g., `gpt-4o`) for complex reasoning
+    - Use specialized models for specific tasks (safety, embeddings)
+  </Step>
+  
+  <Step title="Configure Timeouts">
+    ```yaml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-4
+        parameters:
+          timeout: 30  # seconds
+    ```
+  </Step>
+  
+  <Step title="Test Locally First">
+    Use local NIM deployments for development before switching to cloud APIs
+  </Step>
+</Steps>
+
+## Testing LLM Configuration
+
+<Tabs>
+  <Tab title="CLI Test">
+    ```bash
+    nemoguardrails chat --config ./config
+    ```
+  </Tab>
+  
+  <Tab title="Python Test">
+    ```python
+    from nemoguardrails import RailsConfig, LLMRails
+
+    config = RailsConfig.from_path("./config")
+    rails = LLMRails(config)
+
+    # Test generation
+    response = rails.generate(
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    print(response)
+    ```
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="API Key Errors">
+    Ensure environment variables are set:
+    
+    ```bash
+    echo $OPENAI_API_KEY
+    echo $NVIDIA_API_KEY
+    ```
+    
+    If empty, export them before running:
+    
+    ```bash
+    export OPENAI_API_KEY="your-key-here"
+    ```
+  </Accordion>
+  
+  <Accordion title="Connection Errors">
+    For NIM local deployments, verify the server is running:
+    
+    ```bash
+    curl http://localhost:7331/v1/models
+    ```
+  </Accordion>
+  
+  <Accordion title="Model Not Found">
+    Verify the model name matches the provider's available models:
+    
+    - OpenAI: https://platform.openai.com/docs/models
+    - NVIDIA NIM: https://catalog.ngc.nvidia.com/
+    - HuggingFace: https://huggingface.co/models
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="config.yml Schema" icon="file-lines" href="/configuration/config-yaml">
+    Learn about all configuration options
+  </Card>
+  
+  <Card title="Guardrails Library" icon="shield" href="/guardrails/overview">
+    Explore built-in guardrails for different LLMs
+  </Card>
+</CardGroup>

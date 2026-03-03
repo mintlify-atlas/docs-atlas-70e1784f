@@ -1,0 +1,596 @@
+---
+title: CLI Commands
+description: Command-line interface tools for testing, development, and deployment
+---
+
+The NeMo Guardrails CLI provides a set of commands for interactive testing, server deployment, and configuration management.
+
+## Installation
+
+The CLI is automatically installed with NeMo Guardrails:
+
+```bash
+pip install nemoguardrails
+```
+
+Verify installation:
+
+```bash
+nemoguardrails --version
+```
+
+## Available Commands
+
+View all available commands:
+
+```bash
+nemoguardrails --help
+```
+
+**Output:**
+
+```
+Usage: nemoguardrails [OPTIONS] COMMAND [ARGS]...
+
+Commands:
+  actions-server    Start a NeMo Guardrails actions server.
+  chat              Start an interactive chat session.
+  eval              Run an evaluation task.
+  server            Start a NeMo Guardrails server.
+  convert           Convert Colang files from older versions.
+  find-providers    List and select LLM providers.
+```
+
+## chat
+
+Start an interactive chat session with your guardrails configuration.
+
+### Basic Usage
+
+```bash
+nemoguardrails chat --config=path/to/config
+```
+
+<CodeGroup>
+```bash Basic Chat
+nemoguardrails chat --config=./my_config
+```
+
+```bash Verbose Mode
+nemoguardrails chat --config=./my_config --verbose
+```
+
+```bash Streaming
+nemoguardrails chat --config=./my_config --streaming
+```
+
+```bash Debug Mode
+nemoguardrails chat --config=./my_config \
+  --debug-level=INFO
+```
+
+```bash No LLM Logs
+# Verbose but hide LLM prompts/completions
+nemoguardrails chat --config=./my_config --verbose-no-llm
+```
+</CodeGroup>
+
+### Options
+
+<ParamField path="--config" type="string" default="config" required>
+  Path to a directory containing configuration files or a single configuration file.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable detailed logging information including LLM calls.
+</ParamField>
+
+<ParamField path="--verbose-no-llm" type="boolean" default="false">
+  Enable verbose output but exclude prompts and responses for LLM calls.
+</ParamField>
+
+<ParamField path="--verbose-simplify" type="boolean" default="false">
+  Simplify the verbose output further.
+</ParamField>
+
+<ParamField path="--debug-level" type="string">
+  Enable debug mode with rich flow execution information. Available levels: `WARNING`, `INFO`, `DEBUG`.
+</ParamField>
+
+<ParamField path="--streaming" type="boolean" default="false">
+  Enable streaming mode for token-by-token responses.
+</ParamField>
+
+<ParamField path="--server-url" type="string">
+  If specified, the chat CLI will interact with a server instead of loading the config locally.
+</ParamField>
+
+<ParamField path="--config-id" type="string">
+  The config_id to use when interacting with a server (required with `--server-url`).
+</ParamField>
+
+### Interactive Commands
+
+When in a chat session, you can use special commands:
+
+**Colang 2.x Commands:**
+
+<CodeGroup>
+```bash Events
+# Send custom events
+/TimerFinished(timer_name="my_timer")
+/CustomEvent(param1="value", param2=42)
+```
+
+```bash System Commands
+# Get current state information
+!state
+
+# View context variables
+!context
+
+# View active flows
+!flows
+```
+</CodeGroup>
+
+**General Commands:**
+
+- Press `Ctrl+C` twice to quit
+- Press `Enter` with empty input to check for pending async actions (Colang 2.x)
+
+### Examples
+
+<Steps>
+  <Step title="Start a basic chat session">
+    ```bash
+    nemoguardrails chat --config=./examples/bots/abc
+    ```
+    
+    **Output:**
+    ```
+    Starting the chat (Press Ctrl + C twice to quit) ...
+    
+    > Hello!
+    Hi! How can I help you?
+    
+    > What can you do?
+    I can help answer questions about ABC Company.
+    ```
+  </Step>
+  
+  <Step title="Enable verbose mode to see internal processing">
+    ```bash
+    nemoguardrails chat --config=./my_config --verbose
+    ```
+    
+    Shows:
+    - Canonical form detection
+    - Flow execution
+    - LLM prompts and completions
+    - Rail activations
+  </Step>
+  
+  <Step title="Test streaming responses">
+    ```bash
+    nemoguardrails chat --config=./my_config --streaming
+    ```
+    
+    Responses appear token-by-token as they're generated.
+  </Step>
+  
+  <Step title="Connect to a remote server">
+    ```bash
+    nemoguardrails chat \
+      --server-url=http://localhost:8000 \
+      --config-id=customer_service
+    ```
+  </Step>
+</Steps>
+
+## server
+
+Start a NeMo Guardrails REST API server.
+
+### Basic Usage
+
+```bash
+nemoguardrails server --config=path/to/configs
+```
+
+<CodeGroup>
+```bash Basic Server
+nemoguardrails server --config=./configs
+```
+
+```bash Custom Port
+nemoguardrails server --config=./configs --port=8080
+```
+
+```bash Production Mode
+nemoguardrails server \
+  --config=./configs \
+  --port=8000 \
+  --verbose \
+  --auto-reload
+```
+
+```bash No UI
+nemoguardrails server \
+  --config=./configs \
+  --disable-chat-ui
+```
+</CodeGroup>
+
+### Options
+
+<ParamField path="--config" type="string" default="./config">
+  Path to a directory containing multiple configuration sub-folders.
+</ParamField>
+
+<ParamField path="--port" type="integer" default="8000">
+  The port that the server should listen on.
+</ParamField>
+
+<ParamField path="--default-config-id" type="string">
+  The default configuration to use when no config is specified in requests.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging including prompts.
+</ParamField>
+
+<ParamField path="--disable-chat-ui" type="boolean" default="false">
+  Disable the web-based Chat UI.
+</ParamField>
+
+<ParamField path="--auto-reload" type="boolean" default="false">
+  Enable automatic reloading when configuration files change.
+</ParamField>
+
+<ParamField path="--prefix" type="string" default="">
+  A prefix to add to all server paths (must start with '/').
+</ParamField>
+
+### Examples
+
+```bash Start server on custom port
+nemoguardrails server --config=./configs --port=9000
+```
+
+```bash Enable auto-reload for development
+nemoguardrails server --config=./configs --auto-reload
+```
+
+```bash API-only mode (no UI)
+nemoguardrails server --config=./configs --disable-chat-ui
+```
+
+See the [Server Guide](/usage/server) for detailed information.
+
+## eval
+
+Run evaluation tasks on your guardrails configuration.
+
+### Basic Usage
+
+```bash
+nemoguardrails eval --config=path/to/config --eval-type=moderation
+```
+
+<Note>
+The `eval` command is part of the evaluation framework. See the evaluation documentation for detailed usage.
+</Note>
+
+### Common Evaluation Types
+
+<CodeGroup>
+```bash Moderation
+nemoguardrails eval \
+  --config=./my_config \
+  --eval-type=moderation \
+  --dataset=./test_data.yaml
+```
+
+```bash Fact Checking
+nemoguardrails eval \
+  --config=./my_config \
+  --eval-type=fact_checking \
+  --dataset=./facts.yaml
+```
+
+```bash Topical Rails
+nemoguardrails eval \
+  --config=./my_config \
+  --eval-type=topical \
+  --dataset=./topics.yaml
+```
+</CodeGroup>
+
+## actions-server
+
+Start a dedicated actions server for remote action execution.
+
+### Basic Usage
+
+```bash
+nemoguardrails actions-server
+```
+
+<CodeGroup>
+```bash Default Port
+nemoguardrails actions-server
+# Starts on port 8001
+```
+
+```bash Custom Port
+nemoguardrails actions-server --port=9001
+```
+</CodeGroup>
+
+### Options
+
+<ParamField path="--port" type="integer" default="8001">
+  The port that the actions server should listen on.
+</ParamField>
+
+### Use Case
+
+The actions server allows you to:
+- Run custom Python actions remotely
+- Separate action execution from the main guardrails server
+- Scale action execution independently
+
+**Configuration:**
+
+```yaml config.yml
+actions_server_url: http://localhost:8001
+```
+
+## convert
+
+Convert Colang files from older versions to the latest version.
+
+### Basic Usage
+
+```bash
+nemoguardrails convert path/to/config
+```
+
+<CodeGroup>
+```bash Convert from 1.0
+nemoguardrails convert ./old_config --from-version=1.0
+```
+
+```bash With Validation
+nemoguardrails convert ./old_config --validate
+```
+
+```bash Custom Options
+nemoguardrails convert ./old_config \
+  --from-version=1.0 \
+  --use-active-decorator=true \
+  --include-main-flow=true
+```
+</CodeGroup>
+
+### Options
+
+<ParamField path="path" type="string" required>
+  The path to the file or directory to migrate.
+</ParamField>
+
+<ParamField path="--from-version" type="string" default="1.0">
+  The version to migrate from. Available: `1.0`, `2.0-alpha`.
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Enable verbose logging.
+</ParamField>
+
+<ParamField path="--validate" type="boolean" default="false">
+  Validate the output using the Colang parser.
+</ParamField>
+
+<ParamField path="--use-active-decorator" type="boolean" default="true">
+  Use the active decorator in the migrated code.
+</ParamField>
+
+<ParamField path="--include-main-flow" type="boolean" default="true">
+  Add a main flow to the migrated configuration.
+</ParamField>
+
+## find-providers
+
+List and interactively select LLM providers.
+
+### Basic Usage
+
+```bash
+nemoguardrails find-providers
+```
+
+<CodeGroup>
+```bash Interactive Selection
+nemoguardrails find-providers
+# Opens interactive prompt to select provider type and provider
+```
+
+```bash List Only
+nemoguardrails find-providers --list
+# Lists all available providers without interaction
+```
+</CodeGroup>
+
+### Options
+
+<ParamField path="--list" type="boolean" default="false">
+  Just list all available providers without interactive selection.
+</ParamField>
+
+### Interactive Mode
+
+When run without `--list`, the command provides an interactive interface:
+
+1. **Select provider type:** Type to filter between "text completion" and "chat completion"
+2. **Select provider:** Type to filter through available providers
+3. **Navigate:** Use arrow keys to navigate, Tab to autocomplete, Enter to select
+
+## Common Workflows
+
+### Development Workflow
+
+<Steps>
+  <Step title="Test configuration locally">
+    ```bash
+    nemoguardrails chat --config=./my_config --verbose
+    ```
+  </Step>
+  
+  <Step title="Start server with auto-reload">
+    ```bash
+    nemoguardrails server --config=./my_config --auto-reload
+    ```
+  </Step>
+  
+  <Step title="Iterate on configuration files">
+    Edit `.co` files and `config.yml` - changes reload automatically
+  </Step>
+  
+  <Step title="Test with streaming">
+    ```bash
+    nemoguardrails chat --config=./my_config --streaming
+    ```
+  </Step>
+</Steps>
+
+### Testing Workflow
+
+<Steps>
+  <Step title="Run evaluation suite">
+    ```bash
+    nemoguardrails eval --config=./my_config --dataset=./tests.yaml
+    ```
+  </Step>
+  
+  <Step title="Test with verbose logging">
+    ```bash
+    nemoguardrails chat --config=./my_config --verbose --debug-level=INFO
+    ```
+  </Step>
+  
+  <Step title="Verify against remote server">
+    ```bash
+    nemoguardrails chat --server-url=http://localhost:8000 --config-id=my_config
+    ```
+  </Step>
+</Steps>
+
+### Deployment Workflow
+
+<Steps>
+  <Step title="Validate configuration">
+    ```bash
+    nemoguardrails chat --config=./production_config
+    # Test interactively first
+    ```
+  </Step>
+  
+  <Step title="Start production server">
+    ```bash
+    nemoguardrails server \
+      --config=./production_config \
+      --port=8000 \
+      --disable-chat-ui
+    ```
+  </Step>
+  
+  <Step title="Monitor with verbose logs">
+    ```bash
+    nemoguardrails server \
+      --config=./production_config \
+      --verbose
+    ```
+  </Step>
+</Steps>
+
+## Environment Variables
+
+The CLI respects standard environment variables:
+
+```bash
+# LLM API keys
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Model configuration
+export MAIN_MODEL_ENGINE=openai
+export MAIN_MODEL_BASE_URL=http://localhost:8080/v1
+
+# Server configuration
+export NEMO_GUARDRAILS_SERVER_ENABLE_CORS=true
+export NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS="*"
+
+# Tokenization
+export TOKENIZERS_PARALLELISM=false
+
+# Debug
+export DEBUG_MODE=1
+```
+
+## Troubleshooting
+
+### Command Not Found
+
+Ensure NeMo Guardrails is installed:
+
+```bash
+pip install nemoguardrails
+# Or
+pip install nemoguardrails[server]  # With server dependencies
+```
+
+### Configuration Not Loading
+
+Verify the path exists and contains valid files:
+
+```bash
+ls -la path/to/config/
+# Should show config.yml and .co files
+```
+
+### Streaming Not Working
+
+Enable streaming in configuration:
+
+```yaml config.yml
+rails:
+  output:
+    streaming:
+      enabled: true
+```
+
+### Port Already in Use
+
+Change the port:
+
+```bash
+nemoguardrails server --config=./configs --port=8080
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="code" href="/usage/python-api">
+    Use guardrails programmatically
+  </Card>
+  <Card title="Server Guide" icon="server" href="/usage/server">
+    Deploy guardrails as a REST API
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/rails-definition">
+    Configure your guardrails
+  </Card>
+  <Card title="Evaluation" icon="chart-line" href="/evaluation/overview">
+    Test and evaluate your guardrails
+  </Card>
+</CardGroup>

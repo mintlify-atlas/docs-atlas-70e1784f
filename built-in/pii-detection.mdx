@@ -1,0 +1,453 @@
+---
+title: PII Detection
+description: Detect and mask personally identifiable information in inputs, outputs, and retrieved content
+---
+
+PII (Personally Identifiable Information) detection helps protect user privacy by identifying and optionally masking sensitive data.
+
+## Overview
+
+The sensitive data detection guardrail uses Microsoft Presidio to:
+
+- Detect PII in user inputs, bot outputs, and retrieved documents
+- Mask or block detected sensitive information
+- Support custom entity recognizers
+- Configure different rules for input, output, and retrieval
+
+**Supported entity types:**
+- PERSON (names)
+- EMAIL_ADDRESS
+- PHONE_NUMBER
+- CREDIT_CARD
+- US_SSN (Social Security Numbers)
+- LOCATION
+- IP_ADDRESS
+- IBAN_CODE
+- And many more...
+
+## Quick Start
+
+<Steps>
+  <Step title="Install dependencies">
+    Install Presidio and spaCy:
+    
+    ```bash
+    pip install presidio-analyzer presidio-anonymizer
+    pip install spacy
+    python -m spacy download en_core_web_lg
+    ```
+  </Step>
+  
+  <Step title="Configure PII detection">
+    Define which entities to detect:
+    
+    ```yaml config.yml
+    rails:
+      config:
+        sensitive_data_detection:
+          input:
+            score_threshold: 0.4
+            entities:
+              - PERSON
+              - EMAIL_ADDRESS
+              - PHONE_NUMBER
+              - CREDIT_CARD
+              - US_SSN
+    ```
+  </Step>
+  
+  <Step title="Enable detection flows">
+    Choose between detection (blocking) or masking:
+    
+    ```yaml config.yml
+    rails:
+      input:
+        flows:
+          - detect sensitive data on input
+          # OR
+          - mask sensitive data on input
+    ```
+  </Step>
+</Steps>
+
+## Detection vs Masking
+
+### Detection (Blocking)
+
+Blocks requests containing PII:
+
+```yaml config.yml
+rails:
+  input:
+    flows:
+      - detect sensitive data on input
+  output:
+    flows:
+      - detect sensitive data on output
+```
+
+When PII is found, the bot responds with "I don't know the answer to that" and aborts.
+
+### Masking (Redaction)
+
+Replaces PII with placeholder text:
+
+```yaml config.yml
+rails:
+  input:
+    flows:
+      - mask sensitive data on input
+  output:
+    flows:
+      - mask sensitive data on output
+```
+
+Example:
+```
+Input:  "My email is john@example.com"
+Masked: "My email is <EMAIL_ADDRESS>"
+```
+
+## Configuration
+
+### Complete Configuration
+
+```yaml config.yml
+colang_version: "2.x"
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  config:
+    sensitive_data_detection:
+      # Input configuration
+      input:
+        score_threshold: 0.4
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - CREDIT_CARD
+          - US_SSN
+          - LOCATION
+      
+      # Output configuration
+      output:
+        score_threshold: 0.4
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - CREDIT_CARD
+          - US_SSN
+          - LOCATION
+      
+      # Retrieval configuration (for RAG systems)
+      retrieval:
+        score_threshold: 0.4
+        entities:
+          - PERSON
+          - CREDIT_CARD
+          - US_SSN
+  
+  input:
+    flows:
+      - mask sensitive data on input
+  
+  output:
+    flows:
+      - mask sensitive data on output
+```
+
+### Score Threshold
+
+The `score_threshold` controls detection sensitivity:
+
+- `0.0` - Detect everything (high false positives)
+- `0.4` - Balanced (recommended default)
+- `1.0` - Only very confident matches (may miss some PII)
+
+```yaml
+sensitive_data_detection:
+  input:
+    score_threshold: 0.4  # Adjust based on your needs
+```
+
+### Separate Configurations
+
+Configure different rules for input, output, and retrieval:
+
+```yaml
+sensitive_data_detection:
+  # Strict for user inputs
+  input:
+    score_threshold: 0.3
+    entities:
+      - PERSON
+      - EMAIL_ADDRESS
+      - PHONE_NUMBER
+      - CREDIT_CARD
+      - US_SSN
+  
+  # Moderate for bot outputs
+  output:
+    score_threshold: 0.5
+    entities:
+      - CREDIT_CARD
+      - US_SSN
+  
+  # Very strict for retrieved documents
+  retrieval:
+    score_threshold: 0.2
+    entities:
+      - CREDIT_CARD
+      - US_SSN
+      - IBAN_CODE
+```
+
+## Available Flows
+
+### Input Rails
+
+**Detect (Block):**
+```yaml
+rails:
+  input:
+    flows:
+      - detect sensitive data on input
+```
+
+**Mask (Redact):**
+```yaml
+rails:
+  input:
+    flows:
+      - mask sensitive data on input
+```
+
+### Output Rails
+
+**Detect (Block):**
+```yaml
+rails:
+  output:
+    flows:
+      - detect sensitive data on output
+```
+
+**Mask (Redact):**
+```yaml
+rails:
+  output:
+    flows:
+      - mask sensitive data on output
+```
+
+### Retrieval Rails
+
+**Detect (Block):**
+```yaml
+rails:
+  retrieval:
+    flows:
+      - detect sensitive data on retrieval
+```
+
+**Mask (Redact):**
+```yaml
+rails:
+  retrieval:
+    flows:
+      - mask sensitive data on retrieval
+```
+
+## Custom Entity Recognizers
+
+Add custom patterns for domain-specific PII:
+
+```yaml config.yml
+rails:
+  config:
+    sensitive_data_detection:
+      recognizers:
+        - name: "EMPLOYEE_ID"
+          supported_language: "en"
+          patterns:
+            - name: "employee_id_pattern"
+              regex: "EMP-[0-9]{6}"
+              score: 0.8
+        
+        - name: "INTERNAL_IP"
+          supported_language: "en"
+          patterns:
+            - name: "internal_ip_pattern"
+              regex: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+              score: 0.9
+      
+      input:
+        score_threshold: 0.4
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - EMPLOYEE_ID  # Custom entity
+          - INTERNAL_IP  # Custom entity
+```
+
+## Supported Entities
+
+Presidio supports many built-in entity types:
+
+**Personal Information:**
+- PERSON
+- EMAIL_ADDRESS
+- PHONE_NUMBER
+- LOCATION
+- DATE_TIME
+- URL
+
+**Financial:**
+- CREDIT_CARD
+- IBAN_CODE
+- CRYPTO
+
+**Identification:**
+- US_SSN
+- US_PASSPORT
+- US_DRIVER_LICENSE
+- UK_NHS
+- SG_NRIC_FIN
+
+**Technical:**
+- IP_ADDRESS
+- MAC_ADDRESS
+
+**Medical:**
+- MEDICAL_LICENSE
+- US_ITIN
+
+See [Presidio documentation](https://microsoft.github.io/presidio/supported_entities/) for the complete list.
+
+## Custom Flows
+
+Create custom PII handling:
+
+```colang flows.co
+flow my pii handler
+  """Custom PII detection with logging."""
+  $has_pii = await DetectSensitiveDataAction(source="input", text=$user_message)
+  
+  if $has_pii
+    log "PII detected in user message"
+    bot say "Please don't share personal information. How else can I help?"
+    abort
+```
+
+## Actions
+
+Two actions are available:
+
+### DetectSensitiveDataAction
+
+Returns `True` if PII is detected:
+
+```python
+$has_pii = await DetectSensitiveDataAction(
+    source="input",  # "input", "output", or "retrieval"
+    text=$user_message
+)
+```
+
+### MaskSensitiveDataAction
+
+Returns masked text:
+
+```python
+$masked_text = await MaskSensitiveDataAction(
+    source="input",
+    text=$user_message
+)
+```
+
+## Integration with RAG
+
+Mask PII in retrieved documents:
+
+```colang flows.co
+flow rag with pii masking
+  user ask question
+  
+  # Retrieve documents
+  $relevant_chunks = execute retrieve_documents()
+  
+  # Mask PII in retrieved content
+  $relevant_chunks = await MaskSensitiveDataAction(
+    source="retrieval",
+    text=$relevant_chunks
+  )
+  
+  # Generate response
+  bot provide response with context
+```
+
+## Dependencies
+
+<Warning>
+PII detection requires additional packages that must be installed separately.
+</Warning>
+
+```bash
+# Install Presidio
+pip install presidio-analyzer presidio-anonymizer
+
+# Install spaCy and language model
+pip install spacy
+python -m spacy download en_core_web_lg
+```
+
+If these are not installed, you'll see:
+```
+ImportError: Could not import presidio, please install it with 
+`pip install presidio-analyzer presidio-anonymizer`.
+```
+
+## Performance Considerations
+
+PII detection adds latency:
+- spaCy model loading takes time on first run
+- Each detection requires NLP processing
+- Consider caching results when possible
+
+Optimization tips:
+1. Only enable for necessary sources (input/output/retrieval)
+2. Limit entities to those actually needed
+3. Adjust score threshold to reduce false positives
+4. Use masking instead of detection when appropriate
+
+## Implementation Details
+
+The PII detection flows are defined in:
+- `/nemoguardrails/library/sensitive_data_detection/flows.co`
+- `/nemoguardrails/library/sensitive_data_detection/actions.py`
+
+Actions:
+- `DetectSensitiveDataAction` - Returns boolean for presence of PII
+- `MaskSensitiveDataAction` - Returns masked text with PII replaced
+
+## Best Practices
+
+1. **Start with detection** - Use blocking mode first to understand what PII appears
+2. **Tune threshold** - Adjust based on false positive/negative rates
+3. **Use appropriate entities** - Only detect PII relevant to your domain
+4. **Different rules per source** - Input/output/retrieval may need different configurations
+5. **Test thoroughly** - Verify detection works for your specific use cases
+6. **Consider compliance** - Ensure your PII handling meets regulatory requirements (GDPR, CCPA, etc.)
+
+## See Also
+
+- [Content Safety](/built-in/content-safety)
+- [Input Rails](/guardrails/input-rails)
+- [Output Rails](/guardrails/output-rails)
+- [Presidio Documentation](https://microsoft.github.io/presidio/)

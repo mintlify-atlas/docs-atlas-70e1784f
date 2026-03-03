@@ -1,122 +1,180 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "NeMo Guardrails",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#76B900",
+    "light": "#90D917",
+    "dark": "#5A9000"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/NVIDIA-NeMo/Guardrails"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/NVIDIA-NeMo/Guardrails"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/overview",
+              "concepts/guardrail-types",
+              "concepts/colang",
+              "concepts/architecture"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Configuration",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "configuration/overview",
+              "configuration/config-yaml",
+              "configuration/rails-definition",
+              "configuration/custom-actions",
+              "configuration/llm-configuration"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Guardrails Library",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guardrails/overview",
+              "guardrails/input-rails",
+              "guardrails/output-rails",
+              "guardrails/dialog-rails",
+              "guardrails/retrieval-rails",
+              "guardrails/execution-rails"
+            ]
+          },
+          {
+            "group": "Built-in Guardrails",
+            "pages": [
+              "built-in/jailbreak-detection",
+              "built-in/content-safety",
+              "built-in/topic-control",
+              "built-in/fact-checking",
+              "built-in/hallucination-detection",
+              "built-in/pii-detection",
+              "built-in/prompt-injection"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/python-api",
+              "usage/server",
+              "usage/cli",
+              "usage/langchain-integration"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/docker",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Evaluation",
+            "pages": [
+              "evaluation/overview",
+              "evaluation/vulnerability-scanning",
+              "evaluation/metrics"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Python API",
             "pages": [
-              "api-reference/introduction"
+              "api/llmrails",
+              "api/railsconfig",
+              "api/actions",
+              "api/exceptions"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Server API",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/server/chat-completions",
+              "api/server/streaming",
+              "api/server/configuration"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "api/cli/server",
+              "api/cli/chat",
+              "api/cli/evaluate"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Colang",
+        "groups": [
+          {
+            "group": "Colang 1.0",
+            "pages": [
+              "colang/v1/introduction",
+              "colang/v1/syntax",
+              "colang/v1/flows",
+              "colang/v1/examples"
+            ]
+          },
+          {
+            "group": "Colang 2.0",
+            "pages": [
+              "colang/v2/overview",
+              "colang/v2/getting-started",
+              "colang/v2/language-reference",
+              "colang/v2/migration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Tutorials",
+            "pages": [
+              "examples/basic-rag",
+              "examples/chatbot-assistant",
+              "examples/custom-guardrails",
+              "examples/multi-rail-configuration"
+            ]
+          },
+          {
+            "group": "Use Cases",
+            "pages": [
+              "examples/customer-support",
+              "examples/qa-system",
+              "examples/agentic-applications"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,138 @@
+---
+title: Colang 1.0 Introduction
+description: Introduction to Colang 1.0, the modeling language for conversational guardrails in NeMo Guardrails
+---
+
+# Colang 1.0 Introduction
+
+Colang is a modeling language enabling the design of guardrails for conversational systems. It provides a way to define how conversations between users and bots should unfold, with specific rails to control behavior.
+
+## What is Colang?
+
+Colang is an event-driven interaction modeling language interpreted by a Python runtime. The initial releases of NeMo Guardrails (versions 0.1 through 0.7) use Colang 1.0 exclusively.
+
+| NeMo Guardrails Version | Colang Version |
+|------------------------|----------------|
+| 0.1 - 0.7              | 1.0            |
+| 0.8                    | 2.0-alpha      |
+| >= 0.9                 | 2.0-beta       |
+
+<Warning>
+Colang can be used to perform complex activities, such as calling Python scripts and performing multiple calls to the underlying language model. You should avoid loading Colang files from untrusted sources without careful inspection.
+</Warning>
+
+## Why a New Language?
+
+Creating guardrails for conversational systems requires understanding how dialogue unfolds between users and bots. Existing dialog management techniques like flow charts, state machines, and frame-based systems are not well-suited for modeling the highly flexible conversational flows expected when interacting with LLM-based systems like ChatGPT.
+
+Since learning a new language is not easy, Colang was designed as a mix of natural language and Python. If you're familiar with Python, you should feel confident using Colang after seeing a few examples.
+
+## Core Concepts
+
+Below are the main concepts behind the language:
+
+- **LLM-based Application**: Software application that uses an LLM to drive interactions
+- **Bot**: Synonym for LLM-based application
+- **Utterance**: The raw text coming from the user or the bot
+- **Intent**: The canonical form (structured representation) of a user/bot utterance
+- **Event**: Something that has happened and is relevant to the conversation (e.g., user is silent, user clicked something)
+- **Action**: Custom code that the bot can invoke, usually for connecting to third-party APIs
+- **Context**: Any data relevant to the conversation (key-value dictionary)
+- **Flow**: A sequence of messages and events, potentially with additional branching logic
+- **Rails**: Specific ways of controlling the behavior of a conversational system (e.g., not talking about politics, responding in a specific way to certain requests)
+
+## Event-Driven Model
+
+In Colang 1.0, the interaction between the application (or user) and the LLM is event-driven. Examples of events include:
+
+- User saying something
+- The LLM generating a response
+- Triggering an action
+- The result of an action
+- The retrieval of additional information
+- The triggering of a guardrail
+
+The evolution of a system is modeled as a series of events, with the guardrails layer responsible for recognizing and enforcing patterns within the stream.
+
+## Basic Syntax
+
+Colang has a "pythonic" syntax where most constructs resemble their Python equivalent and indentation is used as a syntactic element.
+
+<Note>
+Unlike Python, the recommended indentation in Colang is **two spaces**, rather than four.
+</Note>
+
+### Simple Example
+
+Here's a basic "Hello World" example:
+
+```colang
+define user express greeting
+  "hello"
+  "hi"
+
+define bot express greeting
+  "Hello there!"
+  "Hi!"
+
+define flow
+  user express greeting
+  bot express greeting
+```
+
+This example defines:
+1. User utterances that express a greeting
+2. Bot responses for greetings
+3. A flow that connects them
+
+## Use Cases
+
+Colang 1.0 is primarily designed for:
+
+- **Input Rails**: Blocking unwanted user inputs (e.g., jailbreak attempts, off-topic questions)
+- **Output Rails**: Ensuring bot responses meet safety and quality standards
+- **Dialog Rails**: Defining specific conversation flows
+- **Topical Rails**: Keeping conversations on allowed topics
+- **Retrieval Rails**: Controlling how information is retrieved and presented
+
+## File Structure
+
+Colang 1.0 configurations are stored in `.co` files. A typical guardrails configuration includes:
+
+- `config.yml`: Main configuration file
+- `*.co` files: Colang flow definitions
+- Python actions (optional): Custom code for specific behaviors
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Syntax Guide" icon="code" href="/colang/v1/syntax">
+    Learn the detailed syntax of Colang 1.0
+  </Card>
+  <Card title="Flows" icon="diagram-project" href="/colang/v1/flows">
+    Understand how to define conversation flows
+  </Card>
+  <Card title="Examples" icon="book" href="/colang/v1/examples">
+    See real-world examples from the codebase
+  </Card>
+  <Card title="Migrate to 2.0" icon="arrow-right" href="/colang/v2/migration">
+    Learn about upgrading to Colang 2.0
+  </Card>
+</CardGroup>
+
+## Version Comparison
+
+Colang 1.0 has several limitations that are addressed in Colang 2.0:
+
+**Language Limitations:**
+- Primarily supports text-based interactions rather than multi-modal
+- Limited support for natural language instructions
+- No support for concurrent actions or parallel flows
+- Cannot model parallel interaction streams
+- Absence of formal language description
+
+**Runtime Limitations:**
+- No explicit state object for continuous interaction
+- Performance degrades as the number of events increases
+
+These limitations are addressed in Colang 2.0, which represents a complete overhaul of both the language and runtime.

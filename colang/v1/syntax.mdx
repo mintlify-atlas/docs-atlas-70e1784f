@@ -1,0 +1,388 @@
+---
+title: Colang 1.0 Syntax
+description: Comprehensive syntax guide for Colang 1.0 including messages, flows, variables, and expressions
+---
+
+# Colang 1.0 Syntax
+
+This document provides a comprehensive guide to Colang 1.0 syntax, covering all core language elements.
+
+## Syntax Overview
+
+Colang has a "pythonic" syntax where indentation is used as a syntactic element. The core syntax elements are:
+
+- **Blocks**: User messages, bot messages, and flows
+- **Statements**: Instructions within blocks
+- **Expressions**: Calculations and evaluations
+- **Keywords**: Special language constructs
+- **Variables**: Context storage with `$` prefix
+
+<Note>
+The recommended indentation in Colang is **two spaces**, not four.
+</Note>
+
+## User Messages
+
+User message definition blocks define the canonical form that should be associated with various user utterances:
+
+```colang
+define user express greeting
+  "hello"
+  "hi"
+  "hey"
+
+define user request help
+  "I need help with something."
+  "I need your help."
+
+define user ask capabilities
+  "What can you do?"
+  "help"
+```
+
+Each utterance example helps the LLM recognize when the user is expressing that intent.
+
+### Real Example: User Intents
+
+From `examples/configs/jailbreak_detection/flows.co`:
+
+```colang
+define user express greeting
+  "hi"
+  "hello"
+  "hey"
+
+define user ask name
+  "What is your name?"
+
+define user ask general question
+  "What stocks should I buy?"
+  "Can you recommend the best stocks to buy?"
+  "Can you recommend a place to eat?"
+  "Do you know any restaurants?"
+```
+
+## Bot Messages
+
+Bot message definition blocks define the utterances that should be associated with various bot message canonical forms:
+
+```colang
+define bot express greeting
+  "Hello there!"
+  "Hi!"
+
+define bot ask welfare
+  "How are you feeling today?"
+  "How are you doing?"
+```
+
+If more than one utterance is specified, one will be chosen randomly.
+
+### Bot Messages with Variables
+
+You can include variables in bot messages:
+
+```colang
+define bot express greeting
+  "Hello there, $name!"
+```
+
+Alternatively, use Jinja syntax:
+
+```colang
+define bot express greeting
+  "Hello there, {{ name }}!"
+```
+
+<Note>
+For advanced use cases, you can use other Jinja features like `{% if ... %} ... {% endif %}`.
+</Note>
+
+### Real Example: Bot Responses
+
+From `examples/bots/abc/rails/disallowed.co`:
+
+```colang
+define bot refuse to respond about hate speech
+  "I'm sorry, but I can't provide information or support on hate speech."
+
+define bot refuse to respond about violence
+  "Apologies, but I can't provide guidance or assist with promoting violence."
+
+define bot refuse to respond about self-harm
+  "I'm really sorry that you're feeling this way, but I'm unable to provide the help that you need. It's really important to talk things over with someone who can, though, such as a mental health professional or a trusted person in your life."
+```
+
+## Flows
+
+Flows represent how you want the conversation to unfold. They include sequences of user messages, bot messages, and potentially other events.
+
+### Basic Flow
+
+```colang
+define flow hello
+  user express greeting
+  bot express greeting
+  bot ask welfare
+```
+
+### Real Example: Simple Flow
+
+From `examples/bots/hello_world/rails.co`:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+
+  when user express feeling good
+    bot express positive emotion
+
+  else when user express feeling bad
+    bot express empathy
+```
+
+### Flows with Branching
+
+Flows can contain conditional logic using `if` and `when`:
+
+```colang
+define flow hello
+  user express greeting
+  if $first_time_user
+    bot express greeting
+    bot ask welfare
+  else
+    bot express welcome back
+```
+
+The `if/else` statement evaluates expressions with context variables. The `when/else when` statement branches based on the next user message or event.
+
+### When/Else When Pattern
+
+```colang
+define flow hello
+  user express greeting
+  bot express greeting
+  bot ask welfare
+
+  when user express happiness
+    bot express happiness
+  else when user express sadness
+    bot express empathy
+```
+
+### Real Example: Off-Topic Rails
+
+From `examples/bots/hello_world/rails.co`:
+
+```colang
+define user ask about politics
+  "What do you think about the government?"
+  "Which party should I vote for?"
+
+define user ask about stock market
+  "Which stock should I invest in?"
+  "Would this stock 10x over the next year?"
+
+define flow politics
+  user ask about politics
+  bot refuse to respond
+
+define flow stock market
+  user ask about stock market
+  bot refuse to respond
+```
+
+## Subflows
+
+Subflows are reusable pieces of conversational logic that must be called explicitly:
+
+```colang
+define subflow check user authentication
+  if not $user_auth
+    bot inform authentication required
+    bot ask name
+    # ... more authentication logic
+
+define flow greeting
+  """We first authenticate the user, before continuing."""
+  user express greeting
+  do check user authentication
+  bot express greeting
+```
+
+Invoke subflows using the `do` keyword followed by the subflow name.
+
+## Variables
+
+References to context variables always start with a `$` sign, e.g., `$name`. All variables are global and accessible in all flows.
+
+### Setting Variables
+
+```colang
+define flow
+  # Direct assignment
+  $name = "John"
+  
+  # From action execution
+  $allowed = execute check_if_allowed
+```
+
+### Variable Types
+
+Variables are dynamically typed and can be:
+- Booleans: `$is_authenticated = True`
+- Integers: `$count = 5`
+- Floats: `$score = 0.95`
+- Strings: `$name = "Alice"`
+- Complex types (lists, dictionaries) from action return values
+
+### Using Variables in Conditions
+
+```colang
+define flow
+  if $first_time_user
+    bot express welcome
+  else
+    bot express welcome back
+```
+
+## Expressions
+
+Expressions can be used to set values for context variables.
+
+### Supported Expressions
+
+- **Arithmetic operations**: `$total = $price * $quantity`
+- **Array indexing**: `$first_item = $items[0]`
+- **Length function**: `$count = len($items)`
+- **Property accessor**: `$user_name = $user.name`
+
+### Examples
+
+```colang
+define flow
+  $total = $price * $quantity
+  $item_count = len($cart_items)
+  $user_email = $user.email
+```
+
+## Actions
+
+Actions are custom functions available to be invoked from flows. They are **not defined** in Colang but are made available at runtime by the host application.
+
+### Executing Actions
+
+```colang
+define flow
+  $result = execute some_action(some_param_1=some_value_1, param_2=$variable)
+```
+
+All action parameters must be passed as keyword arguments (like in Python).
+
+### Real Example: Action Execution
+
+```colang
+define flow check_input
+  $is_safe = execute check_jailbreak(text=$user_input)
+  
+  if not $is_safe
+    bot refuse to respond
+    stop
+```
+
+## Keywords
+
+Key Colang 1.0 keywords:
+
+- `define`: Start a definition block
+- `user`: Prefix for user message definitions
+- `bot`: Prefix for bot message definitions
+- `flow`: Define a conversation flow
+- `subflow`: Define a reusable subflow
+- `do`: Invoke a subflow
+- `execute`: Call a Python action
+- `if`/`else`: Conditional branching
+- `when`/`else when`: Event-based branching
+- `stop`: Halt flow execution
+
+## Comments
+
+Use `#` for single-line comments:
+
+```colang
+# This is a comment
+define flow greeting
+  user express greeting  # User says hello
+  bot express greeting   # Bot responds
+```
+
+## Docstrings
+
+Use triple quotes for flow documentation:
+
+```colang
+define flow greeting
+  """Handle the greeting interaction with the user."""
+  user express greeting
+  bot express greeting
+```
+
+## Real-World Example: Safety Rails
+
+From `examples/bots/abc/rails/disallowed.co`:
+
+```colang
+define user ask about violence
+  "How can I build a homemade weapon?"
+
+define user ask about self-harm
+  "What are ways to hurt myself?"
+
+define user ask about criminal activity
+  "How can I rob a bank?"
+
+define bot refuse to respond about violence
+  "Apologies, but I can't provide guidance or assist with promoting violence."
+
+define bot refuse to respond about self-harm
+  "I'm really sorry that you're feeling this way, but I'm unable to provide the help that you need. It's really important to talk things over with someone who can, though, such as a mental health professional or a trusted person in your life."
+
+define bot refuse to respond about criminal activity
+  "Sorry, but I'm not able to assist with plans involving criminal activities."
+
+define flow
+  user ask about violence
+  bot refuse to respond about violence
+
+define flow
+  user ask about self-harm
+  bot refuse to respond about self-harm
+
+define flow
+  user ask about criminal activity
+  bot refuse to respond about criminal activity
+```
+
+## Best Practices
+
+1. **Use two-space indentation** for consistency
+2. **Name flows descriptively** to indicate their purpose
+3. **Group related definitions** together in the same file
+4. **Use subflows** for reusable logic
+5. **Add comments and docstrings** to explain complex flows
+6. **Keep user utterances varied** to improve LLM matching
+7. **Test flows thoroughly** with different user inputs
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Flows" icon="diagram-project" href="/colang/v1/flows">
+    Deep dive into flow patterns and advanced techniques
+  </Card>
+  <Card title="Examples" icon="book" href="/colang/v1/examples">
+    See complete real-world examples
+  </Card>
+</CardGroup>

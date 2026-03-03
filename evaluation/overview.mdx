@@ -1,0 +1,267 @@
+---
+title: Evaluation Overview
+description: Overview of evaluation tools for measuring the accuracy and performance of NeMo Guardrails.
+---
+
+# Evaluation Overview
+
+NeMo Guardrails includes comprehensive evaluation tools to measure the accuracy and performance of different types of rails. This guide introduces the evaluation framework and available tools.
+
+## Why Evaluate Guardrails?
+
+Evaluating your guardrails configuration helps you:
+
+- **Measure Effectiveness**: Quantify how well guardrails protect against vulnerabilities
+- **Optimize Performance**: Identify and fix accuracy issues
+- **Ensure Quality**: Validate configurations before production deployment
+- **Track Improvements**: Monitor performance over time
+- **Build Confidence**: Demonstrate guardrails effectiveness to stakeholders
+
+## Evaluation Types
+
+NeMo Guardrails provides evaluation tools for multiple rail types:
+
+### Dialog Rails (Topical Rails)
+
+Evaluates the core conversation guidance mechanism:
+
+- **User Intent Detection**: Accuracy of canonical form generation
+- **Next Step Generation**: Bot intent prediction accuracy
+- **Bot Message Generation**: Response quality
+
+[Learn more →](../user-guides/evaluation)
+
+### Moderation Rails
+
+Evaluates input and output moderation:
+
+- **Jailbreak Detection**: Blocking harmful user inputs
+- **Output Moderation**: Filtering unsafe LLM responses
+
+[Learn more →](../user-guides/evaluation#moderation-rails)
+
+### Fact-Checking Rails
+
+Evaluates factual grounding:
+
+- **Positive Entailment**: Detecting factually correct responses
+- **Negative Entailment**: Identifying incorrect information
+
+[Learn more →](../user-guides/evaluation#fact-checking-rails)
+
+### Hallucination Rails
+
+Evaluates detection of fabricated information:
+
+- **Consistency Checking**: Comparing multiple responses
+- **False Premise Detection**: Identifying unanswerable questions
+
+[Learn more →](../user-guides/evaluation#hallucination-rails)
+
+## Evaluation CLI Commands
+
+All evaluation tools are accessible through the NeMo Guardrails CLI:
+
+<Code>
+  ```bash
+  # Evaluate dialog rails
+  nemoguardrails evaluate topical --config=<config-path>
+  
+  # Evaluate moderation rails
+  nemoguardrails evaluate moderation --config=<config-path>
+  
+  # Evaluate fact-checking rails
+  nemoguardrails evaluate fact-checking --config=<config-path>
+  
+  # Evaluate hallucination detection
+  nemoguardrails evaluate hallucination --config=<config-path>
+  ```
+</Code>
+
+## Evaluation Workflow
+
+<Steps>
+  <Step title="Prepare Your Configuration">
+    Ensure your guardrails configuration is complete:
+    ```
+    /path/to/config/
+    ├── config.yml
+    ├── config.co
+    └── kb/
+    ```
+  </Step>
+
+  <Step title="Choose Evaluation Type">
+    Select the appropriate evaluation based on your rails:
+    - Use `topical` for dialog flows
+    - Use `moderation` for input/output checking
+    - Use `fact-checking` for factual grounding
+    - Use `hallucination` for consistency checking
+  </Step>
+
+  <Step title="Run Evaluation">
+    Execute the evaluation command:
+    ```bash
+    nemoguardrails evaluate topical \
+      --config=/path/to/config \
+      --verbose \
+      --output-dir=./results
+    ```
+  </Step>
+
+  <Step title="Analyze Results">
+    Review the output metrics and identify areas for improvement:
+    ```
+    Processed 226/226 samples!
+    Num intent errors: 27
+    User Intent Accuracy: 88.1%
+    Bot Intent Accuracy: 88.5%
+    Bot Message Accuracy: 88.9%
+    ```
+  </Step>
+
+  <Step title="Iterate and Improve">
+    Based on results:
+    - Add more training examples
+    - Refine canonical forms
+    - Adjust similarity thresholds
+    - Update prompts
+  </Step>
+</Steps>
+
+## Key Metrics
+
+Understand the metrics reported by evaluation tools:
+
+### Accuracy Metrics
+
+- **User Intent Accuracy**: Percentage of correctly identified user intents
+- **Bot Intent Accuracy**: Percentage of correct next step predictions
+- **Bot Message Accuracy**: Percentage of appropriate responses
+
+### Performance Metrics
+
+- **Latency**: Time per evaluation sample (in milliseconds)
+- **Throughput**: Evaluations processed per second
+- **Error Rate**: Percentage of failed evaluations
+
+### Protection Metrics
+
+- **Block Rate**: Percentage of harmful inputs blocked
+- **False Positive Rate**: Percentage of legitimate inputs incorrectly blocked
+- **False Negative Rate**: Percentage of harmful inputs that passed through
+
+## Datasets
+
+NeMo Guardrails includes sample datasets for evaluation:
+
+<Code>
+  ```
+  nemoguardrails/evaluate/data/
+  ├── topical/          # Dialog rails datasets
+  ├── moderation/       # Jailbreak and moderation tests
+  ├── factchecking/     # Fact-checking samples
+  └── hallucination/    # Hallucination detection tests
+  ```
+</Code>
+
+You can also use your own datasets in the appropriate format.
+
+## Vulnerability Scanning
+
+Beyond standard evaluation, NeMo Guardrails can be tested against known vulnerabilities:
+
+### Garak Integration
+
+[Garak](https://github.com/NVIDIA/garak/) is an LLM vulnerability scanner that tests for:
+
+- Jailbreak attempts
+- Prompt injections
+- Malware generation prompts
+- Encoding attacks
+- Known bad signatures
+
+See the [Vulnerability Scanning](./vulnerability-scanning) guide for detailed results.
+
+## Evaluation Best Practices
+
+<Note>
+  **Tip**: Run evaluations regularly throughout development, not just before deployment.
+</Note>
+
+### 1. Use Representative Data
+
+- Include diverse user inputs
+- Cover edge cases and adversarial examples
+- Balance positive and negative samples
+
+### 2. Establish Baselines
+
+- Run evaluations on initial configuration
+- Track metrics over time
+- Compare against benchmarks
+
+### 3. Test in Isolation
+
+- Evaluate each rail type separately
+- Identify specific weak points
+- Optimize targeted improvements
+
+### 4. Validate with Real Data
+
+- Supplement synthetic data with production samples
+- Test with actual user queries
+- Monitor production metrics
+
+### 5. Iterate Continuously
+
+- Regular evaluation cycles
+- A/B test configuration changes
+- Document improvements
+
+## Common Evaluation Parameters
+
+Most evaluation commands support these parameters:
+
+| Parameter | Description | Default |
+|-----------|-------------|----------|
+| `--config` | Path to guardrails configuration | Required |
+| `--verbose` | Enable verbose output | False |
+| `--num-samples` | Number of samples to evaluate | 50 |
+| `--dataset-path` | Custom dataset path | Built-in |
+| `--output-dir` | Output directory for results | `eval_outputs/` |
+| `--write-outputs` | Save results to files | True |
+
+## Interpreting Results
+
+Understanding your evaluation results:
+
+### High Accuracy (&gt;85%)
+
+- Configuration is well-tuned
+- Sufficient training examples
+- Appropriate for production
+
+### Medium Accuracy (70-85%)
+
+- May need more training data
+- Consider similarity thresholds
+- Review edge cases
+
+### Low Accuracy (&lt;70%)
+
+- Insufficient training examples
+- Prompt engineering needed
+- Consider different LLM
+- Review canonical forms
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vulnerability Scanning" icon="shield-halved" href="./vulnerability-scanning">
+    Test against known attack vectors
+  </Card>
+  <Card title="Evaluation Metrics" icon="chart-bar" href="./metrics">
+    Deep dive into performance metrics
+  </Card>
+</CardGroup>

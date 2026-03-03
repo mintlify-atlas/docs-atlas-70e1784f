@@ -1,0 +1,525 @@
+---
+title: Execution Rails
+description: Secure tool calls, validate action parameters, and control function execution with execution rails.
+---
+
+# Execution Rails
+
+Execution rails control and validate **tool calls, function execution, and action invocations**. They ensure that external integrations, APIs, and custom actions are called safely with validated parameters and produce trusted results.
+
+## When Execution Rails Execute
+
+Execution rails run before and after action/tool execution:
+
+```
+Tool Call Request → Input Validation → Execute Tool → Output Validation → Return Result
+                    ↓                                  ↓
+                Validate Params                    Verify Result
+```
+
+<Note>
+Execution rails are critical for agentic applications where LLMs make autonomous tool calls and API requests.
+</Note>
+
+## Key Concepts
+
+### Action Input Validation
+
+Validate parameters before executing actions:
+
+```colang
+define flow validate database query
+  user request data
+  
+  $query = generate_sql_query
+  
+  # Validate before execution
+  $is_safe = execute validate_sql($query)
+  
+  if $is_safe
+    $result = execute run_query($query)
+    bot present results
+  else
+    bot inform unsafe query
+```
+
+### Action Output Validation
+
+Verify results after execution:
+
+```colang
+define flow validated api call
+  user request external data
+  
+  $response = execute call_external_api
+  
+  # Validate response
+  $contains_sensitive = execute detect_sensitive_data(source="output", text=$response)
+  
+  if $contains_sensitive
+    $response = execute mask_sensitive_data(source="output", text=$response)
+  
+  bot present data
+```
+
+### Authorization Control
+
+Enforce access control for tool calls:
+
+```colang
+define flow authorized action
+  user request privileged action
+  
+  $is_authorized = execute check_user_permissions($action_name)
+  
+  if $is_authorized
+    $result = execute perform_action
+    bot confirm action
+  else
+    bot refuse unauthorized action
+```
+
+## Built-in Execution Rails
+
+### Action Parameter Validation
+
+Validate action inputs using custom validators:
+
+```python
+from nemoguardrails.actions import action
+
+@action()
+async def validate_email(email: str) -> bool:
+    """Validate email format before sending."""
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+@action()
+async def send_email(to: str, subject: str, body: str) -> dict:
+    """Send email with validated recipient."""
+    # Email sending logic
+    return {"status": "sent", "to": to}
+```
+
+Usage in flows:
+
+```colang
+define flow send validated email
+  user request send email
+  
+  $email = extract_email($user_message)
+  $is_valid = execute validate_email($email)
+  
+  if $is_valid
+    execute send_email(to=$email, subject="...", body="...")
+    bot confirm email sent
+  else
+    bot inform invalid email
+```
+
+### SQL Injection Prevention
+
+Validate database queries:
+
+```python
+from nemoguardrails.actions import action
+import sqlparse
+
+@action()
+async def validate_sql(query: str) -> bool:
+    """Check if SQL query is safe to execute."""
+    # Parse the query
+    parsed = sqlparse.parse(query)
+    
+    if not parsed:
+        return False
+    
+    # Block dangerous operations
+    dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'GRANT']
+    query_upper = query.upper()
+    
+    for keyword in dangerous_keywords:
+        if keyword in query_upper:
+            return False
+    
+    return True
+```
+
+### File System Access Control
+
+Validate file operations:
+
+```python
+from nemoguardrails.actions import action
+import os
+from pathlib import Path
+
+@action()
+async def validate_file_path(file_path: str, allowed_dir: str = "/data") -> bool:
+    """Ensure file access is within allowed directory."""
+    try:
+        # Resolve absolute paths
+        abs_path = Path(file_path).resolve()
+        allowed_path = Path(allowed_dir).resolve()
+        
+        # Check if file is within allowed directory
+        return abs_path.is_relative_to(allowed_path)
+    except Exception:
+        return False
+
+@action()
+async def read_file(file_path: str) -> str:
+    """Read file with path validation."""
+    if not await validate_file_path(file_path):
+        raise ValueError(f"Access to {file_path} is not allowed")
+    
+    with open(file_path, 'r') as f:
+        return f.read()
+```
+
+### API Rate Limiting
+
+Control API call frequency:
+
+```python
+from nemoguardrails.actions import action
+import time
+from collections import defaultdict
+
+# Simple in-memory rate limiter
+rate_limits = defaultdict(list)
+
+@action()
+async def check_rate_limit(
+    action_name: str,
+    max_calls: int = 10,
+    window_seconds: int = 60
+) -> bool:
+    """Check if action can be called within rate limit."""
+    now = time.time()
+    
+    # Remove old entries
+    rate_limits[action_name] = [
+        t for t in rate_limits[action_name]
+        if now - t < window_seconds
+    ]
+    
+    # Check limit
+    if len(rate_limits[action_name]) >= max_calls:
+        return False
+    
+    # Record this call
+    rate_limits[action_name].append(now)
+    return True
+```
+
+Usage:
+
+```colang
+define flow rate limited api call
+  user request api data
+  
+  $can_call = execute check_rate_limit(action_name="call_external_api", max_calls=10, window_seconds=60)
+  
+  if $can_call
+    $data = execute call_external_api
+    bot present data
+  else
+    bot inform rate limit exceeded
+```
+
+## Common Patterns
+
+### Pre-Execution Validation
+
+```colang
+define flow execute with validation
+  user request action
+  
+  # Extract parameters
+  $params = extract_action_params
+  
+  # Validate all parameters
+  $valid_email = execute validate_email($params.email)
+  $valid_amount = execute validate_amount($params.amount)
+  $authorized = execute check_permissions($action_name)
+  
+  if $valid_email and $valid_amount and $authorized
+    $result = execute perform_action($params)
+    bot confirm success
+  else
+    bot inform validation failed
+```
+
+### Post-Execution Sanitization
+
+```colang
+define flow sanitize action result
+  user request external data
+  
+  $raw_result = execute fetch_external_data
+  
+  # Sanitize result
+  $has_pii = execute detect_sensitive_data(source="output", text=$raw_result)
+  
+  if $has_pii
+    $sanitized = execute mask_sensitive_data(source="output", text=$raw_result)
+    bot present sanitized data
+  else
+    bot present raw data
+```
+
+### Retry with Validation
+
+```colang
+define flow retry validated action
+  user request action
+  
+  $max_retries = 3
+  $attempt = 0
+  
+  while $attempt < $max_retries
+    $result = execute perform_action
+    $is_valid = execute validate_result($result)
+    
+    if $is_valid
+      bot confirm success
+      stop
+    
+    $attempt = $attempt + 1
+  
+  bot inform action failed
+```
+
+### Sandboxed Execution
+
+```python
+from nemoguardrails.actions import action
+import subprocess
+import tempfile
+import os
+
+@action()
+async def execute_sandboxed_code(code: str, language: str = "python") -> dict:
+    """Execute code in sandboxed environment."""
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{language}', delete=False) as f:
+        f.write(code)
+        temp_file = f.name
+    
+    try:
+        # Run in container with resource limits
+        result = subprocess.run(
+            ['docker', 'run', '--rm',
+             '--memory=128m',  # Limit memory
+             '--cpus=0.5',     # Limit CPU
+             '--network=none', # No network access
+             '-v', f'{temp_file}:/code/{language}',
+             f'{language}-sandbox',
+             f'{language}', f'/code/{language}'
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5  # 5 second timeout
+        )
+        
+        return {
+            "output": result.stdout,
+            "error": result.stderr,
+            "success": result.returncode == 0
+        }
+    finally:
+        os.unlink(temp_file)
+```
+
+## Real-World Examples
+
+### E-commerce Transaction Validation
+
+```colang
+define flow process payment
+  user request purchase
+  
+  # Validate order
+  $order = extract_order_details
+  $valid_amount = execute validate_amount($order.total)
+  $valid_items = execute validate_inventory($order.items)
+  $authorized = execute check_user_credit_limit($order.total)
+  
+  if not ($valid_amount and $valid_items and $authorized)
+    bot inform validation failed
+    stop
+  
+  # Process payment
+  $payment_result = execute process_payment($order)
+  
+  # Validate result
+  if $payment_result.status == "success"
+    execute update_inventory($order.items)
+    execute send_confirmation_email($order.email)
+    bot confirm order
+  else
+    bot inform payment failed
+```
+
+### Database Query Execution
+
+```colang
+define flow execute database query
+  user request data query
+  
+  # Generate SQL
+  $query = generate_sql_from_natural_language
+  
+  # Validate query safety
+  $is_safe = execute validate_sql($query)
+  $is_read_only = execute check_read_only($query)
+  $within_limit = execute check_row_limit($query, max_rows=1000)
+  
+  if not ($is_safe and $is_read_only and $within_limit)
+    bot inform unsafe query
+    stop
+  
+  # Execute with timeout
+  $result = execute run_query($query, timeout=10)
+  
+  # Validate result size
+  if $result.row_count > 1000
+    bot inform result too large
+  else
+    bot present query results
+```
+
+### External API Integration
+
+```colang
+define flow call external api
+  user request external information
+  
+  # Check rate limits
+  $can_call = execute check_rate_limit(action_name="external_api")
+  
+  if not $can_call
+    bot inform rate limit
+    stop
+  
+  # Validate request parameters
+  $params = extract_api_params
+  $valid_params = execute validate_api_params($params)
+  
+  if not $valid_params
+    bot inform invalid parameters
+    stop
+  
+  # Call API
+  $response = execute call_api($params)
+  
+  # Validate and sanitize response
+  $has_sensitive = execute detect_sensitive_data(source="output", text=$response)
+  
+  if $has_sensitive
+    $response = execute mask_sensitive_data(source="output", text=$response)
+  
+  bot present api results
+```
+
+## Best Practices
+
+1. **Validate all external inputs** - Never trust user-provided parameters
+2. **Implement defense in depth** - Layer multiple validation checks
+3. **Use least privilege** - Only grant necessary permissions for actions
+4. **Set timeouts** - Prevent long-running or hanging operations
+5. **Sanitize outputs** - Remove sensitive data from action results
+6. **Log all executions** - Track action calls for security auditing
+7. **Implement rate limiting** - Prevent abuse of expensive operations
+8. **Use sandboxing** - Isolate untrusted code execution
+
+## Configuration
+
+### Register Custom Actions
+
+```python
+# actions.py
+from nemoguardrails.actions import action
+
+@action()
+async def validate_action_params(action_name: str, params: dict) -> bool:
+    """Custom parameter validator."""
+    # Validation logic
+    return True
+
+def register_actions(rails):
+    rails.register_action(validate_action_params)
+```
+
+```yaml
+# config.yml
+actions_server_url: null  # Use in-process actions
+```
+
+### Enable Action Logging
+
+```yaml
+logging:
+  level: INFO
+  log_actions: true
+  log_action_params: true  # Be careful with sensitive data
+```
+
+## Security Considerations
+
+<Warning>
+**Critical Security Practices**:
+
+1. **Never execute arbitrary code** from user input without sandboxing
+2. **Always validate file paths** to prevent directory traversal
+3. **Use parameterized queries** to prevent SQL injection
+4. **Implement proper authentication** for privileged actions
+5. **Rate limit expensive operations** to prevent DoS
+6. **Audit all action executions** for security monitoring
+</Warning>
+
+## Performance Impact
+
+| Validation Type | Latency Impact | Security Value |
+|-----------------|----------------|----------------|
+| Parameter validation | Low (~10-50ms) | High |
+| SQL safety check | Low (~10-50ms) | Very High |
+| File path validation | Low (~5-10ms) | Very High |
+| Rate limiting | Low (~5-10ms) | Medium |
+| Output sanitization | Medium (~50-100ms) | High |
+| Sandboxed execution | High (~1-5s) | Very High |
+
+## Troubleshooting
+
+### Action Validation Failures
+
+Enable detailed logging:
+
+```yaml
+logging:
+  level: DEBUG
+  show_internal_events: true
+```
+
+### Performance Issues
+
+Cache validation results:
+
+```python
+from functools import lru_cache
+
+@action()
+@lru_cache(maxsize=1000)
+async def validate_email(email: str) -> bool:
+    # Validation logic
+    return True
+```
+
+## See Also
+
+- [Custom Actions](/configuration/custom-actions) - Creating custom actions
+- [Dialog Rails](/guardrails/dialog-rails) - Flow control
+- [Output Rails](/guardrails/output-rails) - Response validation
+- [Security Best Practices](/deployment/production) - Comprehensive security guide

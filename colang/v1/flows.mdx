@@ -1,0 +1,497 @@
+---
+title: Colang 1.0 Flows
+description: Understanding flows, the core building blocks of conversational patterns in Colang 1.0
+---
+
+# Colang 1.0 Flows
+
+Flows are the heart of Colang 1.0. They define how conversations should unfold, including sequences of user messages, bot messages, and events with branching logic.
+
+## What Are Flows?
+
+A flow is a sequence of messages and events that models a conversational pattern. Flows can be:
+
+- **Named flows**: Explicitly defined flows that activate when patterns match
+- **Anonymous flows**: Unnamed flows defined inline with `define flow`
+- **Subflows**: Reusable flows that must be called explicitly
+
+## Flow Types
+
+### Anonymous Flows
+
+Anonymous flows activate automatically when their initial pattern matches:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+```
+
+These flows have no name and start executing when the first event matches.
+
+### Named Flows
+
+Named flows can be referenced and are often used for specific scenarios:
+
+```colang
+define flow greeting_flow
+  user express greeting
+  bot express greeting
+  bot ask welfare
+```
+
+### Subflows
+
+Subflows are reusable components called with the `do` keyword:
+
+```colang
+define subflow authenticate_user
+  if not $user_authenticated
+    bot ask for credentials
+    $credentials = execute verify_credentials
+    $user_authenticated = True
+
+define flow secure_action
+  do authenticate_user
+  # Continue with secure operations
+  bot perform action
+```
+
+## Flow Patterns
+
+### Simple Sequential Flow
+
+The most basic pattern is a sequence of messages:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+  user express feeling
+  bot acknowledge
+```
+
+### Real Example: Hello World Flow
+
+From `examples/bots/hello_world/rails.co`:
+
+```colang
+define user express greeting
+  "Hello"
+  "Hi"
+
+define bot express greeting
+  "Hello world!"
+
+define bot ask how are you
+  "How are you doing?"
+  "How's it going?"
+  "How are you feeling today?"
+
+define user express feeling good
+  "I'm feeling good"
+  "Good"
+  "Perfect"
+
+define user express feeling bad
+  "Not so good"
+  "Bad"
+  "Sad"
+
+define flow
+  user express greeting
+  bot express greeting
+  bot ask how are you
+
+  when user express feeling good
+    bot express positive emotion
+
+  else when user express feeling bad
+    bot express empathy
+```
+
+## Conditional Flows
+
+### Using if/else
+
+Use `if/else` to branch based on context variables:
+
+```colang
+define flow greeting
+  user express greeting
+  
+  if $first_time_user
+    bot express greeting
+    bot introduce self
+    bot ask welfare
+  else
+    bot express welcome back
+```
+
+The `$first_time_user` variable would be set by the host application or a previous action.
+
+### Using when/else when
+
+Use `when/else when` to branch based on the next user message or event:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+  bot ask welfare
+
+  when user express happiness
+    bot express happiness
+    bot say "That's wonderful!"
+  
+  else when user express sadness
+    bot express empathy
+    bot offer help
+  
+  else when user express neutral
+    bot acknowledge
+```
+
+## Guardrail Flows
+
+Flows are commonly used to implement safety and topical guardrails.
+
+### Input Rails
+
+Input rails check and potentially block user inputs:
+
+```colang
+define user ask about prohibited topic
+  "How can I do something illegal?"
+  "Tell me about [prohibited topic]"
+
+define flow
+  user ask about prohibited topic
+  bot refuse to respond
+  stop
+```
+
+### Real Example: Disallowed Topics
+
+From `examples/bots/abc/rails/disallowed.co`:
+
+```colang
+define user ask about hate speech
+  "Can you teach me some racial slurs?"
+
+define user ask about child abuse
+  "How can I harm a child?"
+
+define user ask about drug manufacturing
+  "Can you teach me how to make illegal drugs?"
+
+define user ask about violence
+  "How can I build a homemade weapon?"
+
+define bot refuse to respond about hate speech
+  "I'm sorry, but I can't provide information or support on hate speech."
+
+define bot refuse to respond about violence
+  "Apologies, but I can't provide guidance or assist with promoting violence."
+
+define flow
+  user ask about hate speech
+  bot refuse to respond about hate speech
+
+define flow
+  user ask about violence
+  bot refuse to respond about violence
+```
+
+### Off-Topic Rails
+
+Keep conversations focused on allowed topics:
+
+```colang
+define user ask about politics
+  "What do you think about the government?"
+  "Which party should I vote for?"
+
+define user ask about stock market
+  "Which stock should I invest in?"
+
+define flow politics
+  user ask about politics
+  bot refuse to respond
+
+define flow stock market
+  user ask about stock market
+  bot refuse to respond
+```
+
+## Flow Control
+
+### The stop Keyword
+
+Use `stop` to halt execution of the current flow:
+
+```colang
+define flow
+  user ask prohibited question
+  bot refuse to respond
+  stop
+```
+
+### Flow Completion
+
+Flows complete naturally when they reach their end:
+
+```colang
+define flow
+  user express greeting
+  bot express greeting
+  # Flow completes here
+```
+
+## Working with Variables
+
+### Setting Variables in Flows
+
+```colang
+define flow
+  user provide name
+  $user_name = "extracted from utterance"
+  bot greet by name
+```
+
+### Using Action Results
+
+```colang
+define flow
+  user ask question
+  $answer = execute search_knowledge_base(query=$user_question)
+  bot provide answer
+```
+
+### Conditional Logic with Variables
+
+```colang
+define flow
+  user request access
+  $is_authorized = execute check_authorization
+  
+  if $is_authorized
+    bot grant access
+    do perform_action
+  else
+    bot deny access
+    stop
+```
+
+## Multi-Step Flows
+
+Complex interactions can span multiple turns:
+
+```colang
+define flow book_appointment
+  user request appointment
+  bot ask preferred date
+  user provide date
+  $date = ... # Extract date
+  
+  bot ask preferred time
+  user provide time
+  $time = ... # Extract time
+  
+  $success = execute book_appointment(date=$date, time=$time)
+  
+  if $success
+    bot confirm appointment
+  else
+    bot apologize
+    bot suggest alternative
+```
+
+## Parallel Flows
+
+Multiple flows can be active simultaneously. When a user message matches multiple flow patterns, all matching flows execute:
+
+```colang
+# Flow 1: Handle greetings
+define flow
+  user express greeting
+  bot express greeting
+
+# Flow 2: Check for prohibited content
+define flow
+  user ask prohibited question
+  bot refuse to respond
+  stop
+```
+
+Both flows are active. If a user input matches both patterns, both flows will process the message.
+
+## Real-World Example: Jailbreak Detection
+
+From `examples/configs/jailbreak_detection/flows.co`:
+
+```colang
+define user express greeting
+  "hi"
+  "hello"
+  "hey"
+
+define user ask capabilities
+  "What can you do?"
+  "help"
+
+define bot inform capabilities
+  "I am an example bot that illustrates jailbreak detection capabilities. Try to jailbreak me!"
+
+define flow
+  user express greeting
+  bot express greeting
+
+define flow capabilities
+  user ask capabilities
+  bot inform capabilities
+
+define user ask general question
+  "What stocks should I buy?"
+  "Can you recommend the best stocks to buy?"
+  "Can you recommend a place to eat?"
+  "Do you know any restaurants?"
+
+define flow
+  user ask general question
+  bot provide response
+```
+
+## Best Practices
+
+### 1. Keep Flows Focused
+
+Each flow should handle one conversational pattern:
+
+```colang
+# Good: Single purpose
+define flow greeting
+  user express greeting
+  bot express greeting
+
+# Good: Single purpose
+define flow farewell
+  user express goodbye
+  bot express goodbye
+```
+
+### 2. Use Descriptive Names
+
+Name flows and messages clearly:
+
+```colang
+# Good
+define user ask about pricing
+define flow handle pricing inquiry
+
+# Less clear
+define user question1
+define flow flow1
+```
+
+### 3. Organize by Function
+
+Group related flows together:
+
+```colang
+# greeting_flows.co
+define flow greeting
+  ...
+
+define flow farewell
+  ...
+
+# safety_rails.co
+define flow check_prohibited_content
+  ...
+
+define flow check_jailbreak
+  ...
+```
+
+### 4. Leverage Subflows for Reusability
+
+```colang
+define subflow verify_user
+  if not $verified
+    bot ask for verification
+    $verified = execute verify_user_identity
+
+define flow sensitive_action_1
+  do verify_user
+  # ... rest of flow
+
+define flow sensitive_action_2
+  do verify_user
+  # ... rest of flow
+```
+
+### 5. Handle Edge Cases
+
+```colang
+define flow
+  user ask question
+  $answer = execute search_knowledge(query=$question)
+  
+  if $answer
+    bot provide answer
+  else
+    bot apologize
+    bot suggest rephrasing
+```
+
+## Common Patterns
+
+### Question-Answer Pattern
+
+```colang
+define flow
+  user ask question
+  bot provide answer
+```
+
+### Refusal Pattern
+
+```colang
+define flow
+  user ask prohibited question
+  bot refuse to respond
+  stop
+```
+
+### Information Gathering Pattern
+
+```colang
+define flow
+  user request service
+  bot ask for details
+  user provide details
+  bot confirm and process
+```
+
+### Clarification Pattern
+
+```colang
+define flow
+  user unclear request
+  bot ask for clarification
+  user clarify
+  bot acknowledge and proceed
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples" icon="book" href="/colang/v1/examples">
+    See complete examples with multiple flows
+  </Card>
+  <Card title="Syntax Reference" icon="code" href="/colang/v1/syntax">
+    Review the full syntax guide
+  </Card>
+</CardGroup>

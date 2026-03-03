@@ -1,0 +1,388 @@
+---
+title: Prompt Injection Detection
+description: Detect and mitigate injection attacks in bot outputs using YARA rules
+---
+
+Prompt injection detection protects your application from generating outputs that contain malicious code or exploit attempts.
+
+## Overview
+
+The injection detection guardrail uses YARA rules to scan bot outputs for:
+
+- Code injection attempts
+- SQL injection (SQLi)
+- Cross-site scripting (XSS)
+- Template injection
+- Command injection
+- Other exploit patterns
+
+This is an **output rail** that validates bot responses before they're sent to users.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install YARA">
+    Install the yara-python package:
+    
+    ```bash
+    pip install yara-python
+    ```
+  </Step>
+  
+  <Step title="Configure injection detection">
+    Specify which injection types to detect and the action to take:
+    
+    ```yaml config.yml
+    rails:
+      config:
+        injection_detection:
+          injections:
+            - code
+            - sqli
+            - xss
+            - template
+          action: reject
+    ```
+  </Step>
+  
+  <Step title="Enable the output rail">
+    Add the injection detection flow:
+    
+    ```yaml config.yml
+    rails:
+      output:
+        flows:
+          - injection detection
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Basic Configuration
+
+```yaml config.yml
+models:
+  - type: main
+    engine: nvidia_ai_endpoints
+    model: meta/llama-3.3-70b-instruct
+
+rails:
+  config:
+    injection_detection:
+      injections:
+        - code
+        - sqli
+        - template
+        - xss
+      action: reject
+  
+  output:
+    flows:
+      - injection detection
+```
+
+### Available Injection Types
+
+Built-in YARA rules detect:
+
+- `code` - Code injection patterns
+- `sqli` - SQL injection attempts
+- `xss` - Cross-site scripting
+- `template` - Template injection
+- `command` - Command injection
+- And more...
+
+You can specify which types to check:
+
+```yaml
+injection_detection:
+  injections:
+    - sqli      # Only check for SQL injection
+    - xss       # Only check for XSS
+  action: reject
+```
+
+### Actions
+
+Three actions are available:
+
+#### 1. Reject (Recommended)
+
+Block the output and inform the user:
+
+```yaml
+injection_detection:
+  action: reject
+```
+
+When an injection is detected, the bot responds:
+```
+"I'm sorry, the desired output triggered rule(s) designed to mitigate 
+exploitation of [rule_name]."
+```
+
+#### 2. Omit
+
+Strip detected injection patterns from the output:
+
+```yaml
+injection_detection:
+  action: omit
+```
+
+<Warning>
+Omitting injections may not be completely effective and could still result in malicious activity. Use with caution.
+</Warning>
+
+#### 3. Sanitize
+
+<Warning>
+Currently not implemented. Will raise `NotImplementedError`.
+</Warning>
+
+```yaml
+injection_detection:
+  action: sanitize  # Not yet supported
+```
+
+## Custom YARA Rules
+
+Provide your own YARA rules instead of using the built-in ones:
+
+```yaml config.yml
+rails:
+  config:
+    injection_detection:
+      yara_rules:
+        sqli: |
+          rule sql_injection {
+            strings:
+              $sqli1 = /SELECT.*FROM.*WHERE/
+              $sqli2 = /UNION.*SELECT/
+              $sqli3 = /DROP.*TABLE/
+            condition:
+              any of them
+          }
+        
+        custom_pattern: |
+          rule custom_exploit {
+            strings:
+              $pattern = /dangerous-pattern/
+            condition:
+              $pattern
+          }
+      
+      injections:
+        - sqli
+        - custom_pattern
+      action: reject
+```
+
+## Custom YARA Path
+
+Use YARA rules from a custom directory:
+
+```yaml config.yml
+rails:
+  config:
+    injection_detection:
+      yara_path: "/path/to/yara/rules"
+      injections:
+        - my_custom_rule
+      action: reject
+```
+
+The directory should contain `.yara` files named after the injection types:
+```
+/path/to/yara/rules/
+  ├── my_custom_rule.yara
+  ├── sqli.yara
+  └── xss.yara
+```
+
+## Behavior
+
+The injection detection flow operates on `$bot_message`:
+
+```colang flows.co
+flow injection detection
+  response = await InjectionDetectionAction(text=$bot_message)
+  
+  if response["is_injection"]
+    # Handle based on action
+```
+
+### Response Structure
+
+The action returns:
+
+```python
+{
+  "is_injection": bool,      # True if injection detected
+  "text": str,               # Original or modified text
+  "detections": List[str]    # List of matched rule names
+}
+```
+
+### With Rails Exceptions
+
+```yaml config.yml
+rails:
+  config:
+    enable_rails_exceptions: true
+```
+
+Raises `InjectionDetectionRailException` when injection is detected.
+
+### Without Rails Exceptions
+
+Behavior depends on the action:
+
+**Reject:**
+```
+bot: "I'm sorry, the desired output triggered rule(s) designed to 
+      mitigate exploitation of sqli, xss."
+```
+Then aborts.
+
+**Omit:**
+Removes the detected patterns and continues with the sanitized output.
+
+## Custom Flows
+
+Create custom injection handling:
+
+```colang flows.co
+flow my injection handler
+  """Custom injection detection with logging."""
+  $response = await InjectionDetectionAction(text=$bot_message)
+  
+  if $response["is_injection"]
+    log "Injection detected: {{$response['detections']}}"
+    
+    # Custom response
+    bot say "I apologize, but I cannot provide that information in the requested format."
+    abort
+  else
+    # Use the validated text
+    $bot_message = $response["text"]
+```
+
+## Accessing Detection Results
+
+The detection results are available in the flow:
+
+```colang flows.co
+flow check and log injections
+  injection detection
+  
+  # Access via the response variable
+  if response["is_injection"]
+    log "Detected injections: {{response['detections'] | join(', ')}}"
+```
+
+## Use Cases
+
+**Good use cases:**
+- Protecting against LLM-generated exploits
+- Validating code generation outputs
+- Scanning AI-generated SQL queries
+- Checking templated responses
+- Preventing XSS in web-facing bots
+
+**Not suitable for:**
+- Input validation (this is an output rail)
+- Legitimate code examples (may trigger false positives)
+- Technical documentation containing code
+
+## Performance Considerations
+
+YARA rule matching is generally fast, but:
+- More rules = slightly longer processing
+- Complex regex patterns may slow down matching
+- Consider limiting injection types to only those needed
+
+## Implementation Details
+
+The injection detection flows are defined in:
+- `/nemoguardrails/library/injection_detection/flows.co`
+- `/nemoguardrails/library/injection_detection/actions.py`
+- `/nemoguardrails/library/injection_detection/yara_rules/` - Built-in YARA rules
+
+Actions:
+- `InjectionDetectionAction` - Scans text using YARA rules
+
+Internal functions:
+- `_reject_injection()` - Detect injections
+- `_omit_injection()` - Remove injection patterns
+- `_sanitize_injection()` - Not yet implemented
+
+## Dependencies
+
+<Warning>
+Injection detection requires yara-python to be installed.
+</Warning>
+
+```bash
+pip install yara-python
+```
+
+Without it, you'll see:
+```
+ImportError: The yara module is required for injection detection. 
+Please install it using: pip install yara-python
+```
+
+## YARA Rule Examples
+
+Built-in rules are located in:
+```
+/nemoguardrails/library/injection_detection/yara_rules/
+```
+
+Example rule structure:
+```yara
+rule sqli {
+    strings:
+        $sqli1 = /SELECT.*FROM/i
+        $sqli2 = /UNION.*SELECT/i
+        $sqli3 = /DROP.*TABLE/i
+    condition:
+        any of them
+}
+```
+
+## Error Handling
+
+If YARA rules fail to compile:
+```python
+yara.SyntaxError: Failed to initialize injection detection due to 
+configuration or YARA rule error
+```
+
+The action returns no detection and logs the error.
+
+## Best Practices
+
+1. **Use reject action** - Safest option for security-critical applications
+2. **Limit injection types** - Only check for relevant exploit types
+3. **Test false positives** - Legitimate outputs may trigger rules
+4. **Custom rules for your domain** - Add domain-specific patterns
+5. **Monitor detections** - Log when injections are found
+6. **Combine with other rails** - Use alongside content safety and jailbreak detection
+
+## Limitations
+
+- Only scans bot outputs (not user inputs)
+- May have false positives on legitimate technical content
+- Omit action is not guaranteed to be effective
+- Sanitize action not yet implemented
+- Only supports text-based injection detection
+
+## See Also
+
+- [Jailbreak Detection](/built-in/jailbreak-detection)
+- [Content Safety](/built-in/content-safety)
+- [Output Rails](/guardrails/output-rails)
+- [YARA Documentation](https://yara.readthedocs.io/)

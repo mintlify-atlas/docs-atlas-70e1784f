@@ -1,0 +1,443 @@
+---
+title: Dialog Rails
+description: Control conversation flows, enforce policies, and guide multi-turn interactions with dialog rails.
+---
+
+# Dialog Rails
+
+Dialog rails execute during **multi-turn conversations** to enforce flow logic, steer dialogs, and apply policies across the entire interaction. Unlike input/output rails that check individual messages, dialog rails manage the conversation state and structure.
+
+## When Dialog Rails Execute
+
+Dialog rails run throughout the conversation lifecycle:
+
+```
+User Input → Dialog Rails → LLM → Dialog Rails → Response
+             ↓                      ↓
+        Flow Control           Policy Enforcement
+```
+
+<Note>
+Dialog rails use Colang flows to define conversation patterns, topic boundaries, and state management.
+</Note>
+
+## Key Concepts
+
+### Conversation Flows
+
+Flows define the allowed patterns of interaction:
+
+```colang
+define user express greeting
+  "hi"
+  "hello"
+  "hey"
+
+define bot express greeting
+  "Hello! How can I help you today?"
+
+define flow greeting
+  user express greeting
+  bot express greeting
+```
+
+### Topic Control
+
+Restrict conversations to allowed topics:
+
+```colang
+define user ask general question
+  "What stocks should I buy?"
+  "Can you recommend a place to eat?"
+  "What's your name?"
+  "Can you tell me a joke?"
+
+define flow handle general questions
+  user ask general question
+  bot provide response
+```
+
+### Disallowed Topics
+
+Block specific conversation topics:
+
+```colang
+define user ask about politics
+  "Who should I vote for?"
+  "What party will win the elections?"
+
+define bot refuse politics
+  "I cannot discuss political topics."
+
+define flow block politics
+  user ask about politics
+  bot refuse politics
+  stop
+```
+
+## Built-in Dialog Rails
+
+### Flow Management
+
+Control the progression of conversations:
+
+```colang
+define flow capabilities
+  user ask capabilities
+  bot inform capabilities
+
+define flow
+  user express greeting
+  bot express greeting
+
+define flow
+  user ask general question
+  bot provide response
+```
+
+### State Management
+
+Track conversation state across turns:
+
+```colang
+define flow track user preferences
+  user provide preference
+  $user_preference = $user_message
+  bot acknowledge preference
+
+define flow use stored preference
+  user request recommendation
+  if $user_preference
+    bot provide personalized recommendation
+  else
+    bot ask for preference
+```
+
+### Policy Enforcement
+
+Apply business rules throughout the conversation:
+
+```colang
+define flow enforce authentication
+  user request sensitive action
+  if not $authenticated
+    bot request authentication
+    user provide credentials
+    $authenticated = execute validate_credentials
+  
+  if $authenticated
+    bot perform sensitive action
+  else
+    bot refuse action
+```
+
+## Common Patterns
+
+### Guided Conversations
+
+Lead users through structured interactions:
+
+```colang
+define flow onboarding
+  bot ask name
+  user provide name
+  $user_name = $user_message
+  
+  bot ask email
+  user provide email
+  $user_email = $user_message
+  
+  bot confirm registration
+```
+
+### Context Tracking
+
+Maintain conversation context:
+
+```colang
+define flow answer with context
+  user ask question
+  
+  # Track conversation history
+  $conversation_history = $conversation_history + [$user_message]
+  
+  bot provide contextual answer
+```
+
+### Conditional Flows
+
+Adapt based on conversation state:
+
+```colang
+define flow handle request
+  user make request
+  
+  if $user_tier == "premium"
+    bot provide premium service
+  else
+    bot provide standard service
+    bot suggest upgrade
+```
+
+## Advanced Dialog Rails
+
+### Subflows
+
+Reusable conversation components:
+
+```colang
+define subflow verify identity
+  bot ask for verification
+  user provide verification
+  $verified = execute check_identity
+  
+  if not $verified
+    bot inform verification failed
+    return False
+  
+  return True
+
+define flow sensitive operation
+  user request sensitive operation
+  
+  $identity_verified = execute verify_identity
+  if $identity_verified
+    bot perform operation
+  else
+    bot refuse operation
+```
+
+### Event Handling
+
+Respond to system events:
+
+```colang
+define flow handle timeout
+  wait 300  # 5 minutes
+  bot ask if still there
+  
+  user respond
+  or
+  
+  # No response after 30 seconds
+  wait 30
+  bot inform session timeout
+  stop
+```
+
+### Multi-Intent Handling
+
+Manage complex user inputs:
+
+```colang
+define flow handle multiple intents
+  user express multiple intents
+  
+  $intents = execute extract_intents
+  
+  for $intent in $intents
+    bot address intent
+```
+
+## Integration with Other Rails
+
+### Conditional Input Rails
+
+Apply input rails based on dialog state:
+
+```colang
+define flow handle medical question
+  user ask medical question
+  
+  # Extra validation for medical queries
+  $is_safe = execute content_safety_check_input(model="medical")
+  
+  if $is_safe
+    bot provide medical answer
+  else
+    bot refuse unsafe medical question
+```
+
+### Conditional Output Rails
+
+Validate outputs based on topic:
+
+```colang
+define flow answer sensitive question
+  user ask sensitive question
+  bot provide answer
+  
+  # Check answer for policy violations
+  $is_compliant = execute check_compliance
+  
+  if not $is_compliant
+    bot provide alternative answer
+```
+
+## Real-World Examples
+
+### Customer Support Flow
+
+```colang
+define flow customer support
+  bot greet customer
+  user describe issue
+  
+  $issue_category = execute categorize_issue
+  
+  if $issue_category == "technical"
+    execute technical_support_flow
+  else if $issue_category == "billing"
+    execute billing_support_flow
+  else
+    execute general_support_flow
+
+define flow technical_support_flow
+  bot ask for error details
+  user provide error details
+  
+  $solution = execute search_knowledge_base
+  
+  if $solution
+    bot provide solution
+    bot ask if resolved
+    
+    user confirm resolved
+    bot close ticket
+  else
+    bot escalate to engineer
+```
+
+### Educational Tutoring
+
+```colang
+define flow tutoring session
+  bot ask current topic
+  user specify topic
+  $current_topic = $user_message
+  
+  bot explain concept
+  bot ask if understood
+  
+  user confirm understanding
+  or
+  
+  user express confusion
+  bot provide alternative explanation
+  bot give example
+```
+
+### Compliance Enforcement
+
+```colang
+define flow enforce compliance
+  user ask question
+  bot generate answer
+  
+  # Check for regulatory compliance
+  $compliant = execute check_regulatory_compliance
+  $contains_legal_advice = execute detect_legal_advice
+  
+  if not $compliant or $contains_legal_advice
+    bot provide disclaimer
+    bot suggest human expert
+    stop
+```
+
+## Configuration
+
+### Enable Dialog Rails
+
+Dialog rails are enabled by defining flows in `.co` files:
+
+```yaml
+# config.yml
+colang_version: "2.x"
+
+instructions:
+  - type: general
+    content: |
+      You are a helpful assistant that follows conversation flows.
+```
+
+```colang
+# flows.co
+define flow
+  user express greeting
+  bot express greeting
+
+define flow
+  user ask question
+  bot provide answer
+```
+
+### Flow Priority
+
+Control which flows take precedence:
+
+```colang
+define flow high_priority_flow
+  priority 10
+  user urgent request
+  bot immediate response
+
+define flow normal_flow
+  priority 5
+  user normal request
+  bot normal response
+```
+
+## Best Practices
+
+1. **Keep flows focused** - Each flow should handle a single conversation pattern
+2. **Use subflows for reusability** - Extract common patterns into reusable subflows
+3. **Handle edge cases** - Always provide fallback flows for unexpected inputs
+4. **Track important state** - Use variables to maintain conversation context
+5. **Test flow coverage** - Ensure all user intents have corresponding flows
+6. **Document flow logic** - Add comments explaining complex flow decisions
+
+## Limitations
+
+<Warning>
+**Dialog Rails and Reasoning Models**: Using advanced reasoning models (like OpenAI o1) with dialog rails is not currently supported. Reasoning models may not follow Colang flow patterns reliably.
+</Warning>
+
+## Performance Considerations
+
+- **Flow matching overhead** - Complex flow definitions add latency
+- **State management** - Tracking many variables increases memory usage
+- **Intent recognition** - LLM calls for intent matching add cost
+
+Optimizations:
+
+```yaml
+rails:
+  config:
+    # Cache intent recognition results
+    intent_cache:
+      enabled: true
+      max_size: 1000
+```
+
+## Debugging Dialog Rails
+
+Enable verbose logging:
+
+```yaml
+logging:
+  level: DEBUG
+  show_llm_calls: true
+  show_internal_events: true
+```
+
+This shows:
+- Flow matching decisions
+- State variable changes
+- Event triggers
+
+## See Also
+
+- [Colang Language Reference](/colang/v1/introduction) - Full language syntax
+- [Input Rails](/guardrails/input-rails) - Message-level validation
+- [Output Rails](/guardrails/output-rails) - Response filtering
+- [Execution Rails](/guardrails/execution-rails) - Tool call security

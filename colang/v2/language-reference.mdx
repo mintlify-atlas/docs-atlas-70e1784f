@@ -1,0 +1,804 @@
+---
+title: Colang 2.0 Language Reference
+description: Complete reference for Colang 2.0 syntax, flows, events, actions, and standard library
+---
+
+# Colang 2.0 Language Reference
+
+This is the complete language reference for Colang 2.0, covering all syntax, semantics, and standard library features.
+
+## Introduction
+
+Colang is an event-based modeling language for designing highly flexible conversational interactions. Colang 2.0 is designed as a mix of natural language and Python, making it accessible to developers familiar with Python.
+
+Colang scripts are interpreted by a Python runtime that is part of [NeMo Guardrails](https://github.com/NVIDIA-NeMo/Guardrails).
+
+## File Structure
+
+- **Script**: Any Colang code
+- **Module**: A single `.co` file
+- **Package**: A folder of `.co` files, potentially with subfolders
+
+Modules and packages can be imported.
+
+## Basic Syntax
+
+### Indentation
+
+Colang uses indentation to define code blocks (like Python). Use **2 spaces** for indentation (recommended).
+
+### Comments
+
+Single-line comments start with `#`:
+
+```colang
+# This is a comment
+flow main
+  # Another comment
+  user said "hi"
+```
+
+### Docstrings
+
+Flows can have docstrings using triple quotes:
+
+```colang
+flow bot say $text $volume=1.0
+  """Bot says given text with specified volume."""
+  await UtteranceBotAction(script=$text, intensity=$volume)
+```
+
+## Flows
+
+### Flow Definition
+
+Flows are the core building blocks. Syntax:
+
+```colang
+flow <name> [$param1] [$param2=default] -> [$return1] [$return2]
+  """Optional docstring"""
+  # Flow body
+```
+
+**Examples**:
+
+```colang
+flow main
+  user said "hi"
+  bot say "Hello!"
+
+flow bot say $text $intensity=1.0
+  """Bot says given text."""
+  await UtteranceBotAction(script=$text, intensity=$intensity)
+
+flow user said $text
+  """User said given text."""
+  match UtteranceUserActionFinished(final_transcript=$text)
+
+flow user said something -> $transcript
+  """User said something."""
+  match UtteranceUserActionFinished() as $event
+  return $event.final_transcript
+```
+
+### Flow Names
+
+Flow names can contain lowercase letters, numbers, underscores, and **whitespace characters**.
+
+<Note>
+The keywords `and`, `or`, and `as` cannot be used in flow names and must be escaped with a leading underscore (e.g., `this _and that`).
+</Note>
+
+### Flow Naming Conventions
+
+- **User flows** (events from outside): Use **past tense**
+  - `user said`
+  - `user expressed greeting`
+  - `user clicked button`
+
+- **Bot flows** (actions to take): Use **imperative form**
+  - `bot say`
+  - `bot express greeting`
+  - `bot refuse to respond`
+
+### The main Flow
+
+Every Colang script must have a `main` flow as the entry point:
+
+```colang
+flow main
+  activate greeting
+  activate farewell
+```
+
+### Flow Parameters
+
+Flows can accept parameters:
+
+```colang
+flow greet user $name
+  bot say "Hello, {$name}!"
+
+# Call with parameter
+flow main
+  greet user "Alice"
+```
+
+Parameters can have default values:
+
+```colang
+flow bot say $text $volume=1.0
+  await UtteranceBotAction(script=$text, intensity=$volume)
+
+# Both calls are valid:
+flow main
+  bot say "Hi"              # Uses default volume=1.0
+  bot say "Hi" 1.5          # Uses volume=1.5
+```
+
+### Return Values
+
+Flows can return values:
+
+```colang
+flow check user utterance $input_text -> $input_safe
+  $is_safe = ..."Is '{$input_text}' appropriate? True or False."
+  return $is_safe
+
+# Use the return value:
+flow main
+  $safe = await check user utterance "Hello"
+  if $safe
+    bot say "Welcome!"
+```
+
+### Flow Events
+
+Flows generate lifecycle events:
+
+- **`Started()`**: When a flow begins
+- **`Finished()`**: When a flow completes successfully
+- **`Failed()`**: When a flow fails
+
+Match flow events:
+
+```colang
+flow main
+  start bot express greeting as $flow_ref
+  match $flow_ref.Finished()
+  # Continue after greeting finishes
+```
+
+Or match by flow name:
+
+```colang
+match (bot express greeting).Finished()
+```
+
+## Keywords and Operators
+
+### Flow Control Keywords
+
+#### start
+
+Start a flow or action without waiting:
+
+```colang
+flow main
+  start bot express greeting as $ref
+  # Continues immediately, greeting runs in background
+  match $ref.Finished()
+```
+
+#### await
+
+Start a flow/action and wait for completion:
+
+```colang
+flow main
+  await bot express greeting
+  # Waits until greeting completes
+  bot say "How can I help?"
+```
+
+The `await` keyword is optional when calling flows:
+
+```colang
+flow main
+  bot express greeting  # Implicit await
+  bot say "How can I help?"
+```
+
+#### match
+
+Wait for an event:
+
+```colang
+flow main
+  match UtteranceUserActionFinished()
+  bot say "I heard you!"
+```
+
+Match with parameters:
+
+```colang
+match UtteranceUserActionFinished(final_transcript="Hi")
+```
+
+Match and capture:
+
+```colang
+match UtteranceUserActionFinished() as $event
+$text = $event.final_transcript
+```
+
+#### send
+
+Send an event:
+
+```colang
+flow main
+  send CustomEvent(data="value")
+```
+
+#### activate
+
+Activate a flow to run in the background:
+
+```colang
+flow main
+  activate llm continuation
+  activate greeting
+  activate safety_check
+```
+
+Activated flows watch for their patterns throughout the conversation.
+
+#### return
+
+Return a value from a flow:
+
+```colang
+flow calculate sum $a $b -> $result
+  return $a + $b
+```
+
+#### abort
+
+Stop the current flow immediately:
+
+```colang
+flow input rails $input_text
+  $is_safe = await check safety $input_text
+  
+  if not $is_safe
+    bot say "I can't respond to that."
+    abort  # Stops processing
+```
+
+### Conditional Keywords
+
+#### if/else
+
+Conditional branching:
+
+```colang
+flow main
+  if $user_authenticated
+    bot say "Welcome back!"
+  else
+    bot say "Please log in."
+```
+
+#### when/or when
+
+Event-based branching:
+
+```colang
+flow main
+  bot ask "How are you?"
+  
+  when user said "good"
+    bot say "Great!"
+  
+  or when user said "bad"
+    bot say "Sorry to hear that."
+```
+
+<Note>
+Colang 2.0 uses `or when` instead of Colang 1.0's `else when`.
+</Note>
+
+### Logical Operators
+
+- **`and`**: Logical AND
+- **`or`**: Logical OR
+- **`not`**: Logical NOT
+
+```colang
+if $authenticated and $authorized
+  bot say "Access granted"
+
+if not $is_safe
+  abort
+```
+
+### The Generation Operator (...)
+
+The `...` operator invokes the LLM for dynamic generation:
+
+```colang
+$result = ..."Natural language instruction"
+```
+
+**Example**:
+
+```colang
+flow check user utterance $input_text -> $input_safe
+  $is_safe = ..."Consider the following user utterance: '{$input_text}'. Assign 'True' if appropriate, 'False' if inappropriate."
+  return $is_safe
+```
+
+The LLM evaluates the instruction and returns the result.
+
+### The as Keyword
+
+Store a reference:
+
+```colang
+start bot express greeting as $flow_ref
+match $flow_ref.Finished()
+```
+
+Capture event data:
+
+```colang
+match UtteranceUserActionFinished() as $event
+$transcript = $event.final_transcript
+```
+
+## Variables
+
+All variables start with `$`:
+
+```colang
+$name = "Alice"
+$count = 5
+$is_authenticated = True
+```
+
+### Variable Types
+
+- **String**: `$name = "Alice"`
+- **Integer**: `$count = 42`
+- **Float**: `$score = 0.95`
+- **Boolean**: `$is_safe = True`
+- **Complex types**: Lists, dictionaries (from action returns)
+
+### Global Variables
+
+Use `global` to declare variables accessible across flows:
+
+```colang
+flow main
+  global $user_name = "Guest"
+  activate authentication
+
+flow authentication
+  global $user_name
+  
+  user provided credentials
+  $user_name = "Alice"
+```
+
+### Expressions
+
+Colang 2.0 supports:
+
+- **Arithmetic**: `$total = $price * $quantity`
+- **Comparison**: `$is_greater = $a > $b`
+- **Array indexing**: `$first = $items[0]`
+- **Property access**: `$email = $user.email`
+- **Length function**: `$count = len($items)`
+- **String interpolation**: `$message = "Hello, {$name}!"`
+
+## Events
+
+### Event Structure
+
+Events have a name and optional parameters:
+
+```colang
+EventName(param1="value", param2=123)
+```
+
+### Common Events
+
+#### User Events
+
+- **`UtteranceUserActionFinished(final_transcript="...")`**: User said something
+- **`GestureUserActionFinished(gesture="...")`**: User made a gesture
+
+#### Bot Events
+
+- **`StartUtteranceBotAction(script="...")`**: Bot should say something
+- **`StartGestureBotAction(gesture="...")`**: Bot should make a gesture
+
+#### Flow Events
+
+- **`FlowStarted(flow_id="...")`**: A flow started
+- **`FlowFinished(flow_id="...")`**: A flow finished
+- **`FlowFailed(flow_id="...")`**: A flow failed
+
+### Matching Events
+
+Match specific events:
+
+```colang
+match UtteranceUserActionFinished(final_transcript="Hi")
+```
+
+Match any instance:
+
+```colang
+match UtteranceUserActionFinished()
+```
+
+Match and capture:
+
+```colang
+match UtteranceUserActionFinished() as $event
+$text = $event.final_transcript
+```
+
+### Sending Events
+
+```colang
+send CustomEvent(data="value")
+send StartUtteranceBotAction(script="Hello!")
+```
+
+## Actions
+
+Actions are external functions that perform operations.
+
+### Action Events
+
+Actions generate lifecycle events:
+
+- **`ActionStarted`**: When an action begins
+- **`ActionFinished`**: When an action completes
+- **`ActionFailed`**: When an action fails
+
+### Using Actions
+
+Start and wait for an action:
+
+```colang
+await UtteranceBotAction(script="Hello!")
+```
+
+Start without waiting:
+
+```colang
+start UtteranceBotAction(script="Hello!") as $action_ref
+match $action_ref.Finished()
+```
+
+### Parallel Actions
+
+Start multiple actions simultaneously:
+
+```colang
+flow main
+  start UtteranceBotAction(script="Hello!") as $utterance
+  start GestureBotAction(gesture="Wave") as $gesture
+  
+  # Wait for both to complete
+  match $utterance.Finished() and $gesture.Finished()
+```
+
+## Imports
+
+Import modules from the standard library or custom packages:
+
+```colang
+import core
+import llm
+import guardrails
+import timing
+```
+
+Currently, Colang 2.0 only supports module/package-level imports (not individual flows).
+
+## Standard Library
+
+### core Module
+
+Basic flows for user and bot interactions:
+
+```colang
+import core
+
+# Available flows:
+user said "text"           # Match exact user utterance
+user said something        # Match any user utterance
+bot say "text"             # Bot says something
+bot said something         # Match any bot utterance
+```
+
+### llm Module
+
+LLM-driven interaction flows:
+
+```colang
+import llm
+
+# Activate for LLM-driven responses:
+activate llm continuation
+
+# Explicit generation:
+$response = await llm generate "prompt"
+```
+
+### guardrails Module
+
+Input and output checking:
+
+```colang
+import guardrails
+
+# Special flows automatically called:
+flow input rails $input_text
+  # Check input before processing
+  pass
+
+flow output rails $output_text
+  # Check output before sending
+  pass
+```
+
+### timing Module
+
+Time-based flows:
+
+```colang
+import timing
+
+wait 2.5                   # Wait 2.5 seconds
+user was silent 5.0        # Detect 5 seconds of silence
+```
+
+### avatars Module
+
+Interactive avatar control:
+
+```colang
+import avatars
+
+bot gesture "wave"
+bot posture "standing"
+bot expression "happy"
+```
+
+### utils Module
+
+Utility flows:
+
+```colang
+import utils
+
+# Utility functions for common tasks
+```
+
+## Decorators
+
+Colang 2.0 supports decorators for flows.
+
+### @active Decorator
+
+Mark a flow as active from the start:
+
+```colang
+@active
+flow greeting
+  user expressed greeting
+  bot express greeting
+```
+
+This is equivalent to:
+
+```colang
+flow main
+  activate greeting
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+```
+
+## Advanced Features
+
+### Parallel Flows
+
+Multiple flows can run simultaneously:
+
+```colang
+flow main
+  activate flow_1
+  activate flow_2
+  activate flow_3
+
+# All three flows watch for their patterns in parallel
+```
+
+### Pattern Matching
+
+Advanced event matching:
+
+```colang
+# Match specific parameters
+match UtteranceUserActionFinished(final_transcript="Hi")
+
+# Match and capture
+match UtteranceUserActionFinished() as $event
+
+# Match multiple events
+match $action_1.Finished() and $action_2.Finished()
+
+# Match first of multiple
+match $action_1.Finished() or $action_2.Finished()
+```
+
+### Flow Lifetime
+
+Flows have a parent-child relationship:
+
+```colang
+flow main
+  start child_flow as $child
+  # If main finishes, child_flow is stopped
+```
+
+A flow is stopped when:
+- It completes naturally
+- Its parent flow stops
+- It's explicitly aborted
+
+## Real Examples
+
+### Example 1: Simple Greeting
+
+From `examples/v2_x/tutorial/hello_world_1/rails.co`:
+
+```colang
+import core
+
+flow main
+  user said "hi"
+  bot say "Hello World!"
+```
+
+### Example 2: LLM-Powered Bot
+
+From `examples/v2_x/tutorial/guardrails_1/rails.co`:
+
+```colang
+import core
+import guardrails
+import llm
+
+flow main
+  activate llm continuation
+  activate greeting
+
+flow greeting
+  user expressed greeting
+  bot express greeting
+
+flow user expressed greeting
+  user said "hi" or user said "hello"
+
+flow bot express greeting
+  bot say "Hello world!"
+
+flow input rails $input_text
+  $input_safe = await check user utterance $input_text
+
+  if not $input_safe
+    bot say "I'm sorry, I can't respond to that."
+    abort
+
+flow check user utterance $input_text -> $input_safe
+  $is_safe = ..."Consider the following user utterance: '{$input_text}'. Assign 'True' if appropriate, 'False' if inappropriate."
+  print $is_safe
+  return $is_safe
+```
+
+### Example 3: Multi-Modal Interaction
+
+From `examples/v2_x/language_reference/actions/dialog_pattern/main.co`:
+
+```colang
+flow main
+  match UtteranceUserAction.Finished(final_transcript="Hi")
+  start UtteranceBotAction(script="Hi there! How are you?") as $ref_action_1
+  match $ref_action_1.Finished()
+  match UtteranceUserAction.Finished(final_transcript="Good and you?")
+  start UtteranceBotAction(script="Great! Thanks") as $ref_action_2
+  start GestureBotAction(gesture="Thumbs up") as $ref_action_3
+  match $ref_action_2.Finished() and $ref_action_3.Finished()
+```
+
+### Example 4: Simple ABC Bot
+
+From `examples/bots/abc_v2/main.co`:
+
+```colang
+import core
+import llm
+
+flow main
+  activate llm continuation
+```
+
+With rails (`rails.co`):
+
+```colang
+import guardrails
+import nemoguardrails.library.self_check.output_check
+import nemoguardrails.library.self_check.input_check
+
+flow input rails $input_text
+  self check input
+
+flow output rails $output_text
+  self check output
+```
+
+## Best Practices
+
+1. **Use descriptive flow names** following naming conventions
+2. **Import required modules** at the top of each file
+3. **Define a `main` flow** as the entry point
+4. **Use `activate`** for background flows
+5. **Leverage the `...` operator** for dynamic LLM decisions
+6. **Add docstrings** to document complex flows
+7. **Use global variables** sparingly
+8. **Test flows incrementally** during development
+9. **Organize flows by purpose** (greetings, safety, capabilities, etc.)
+10. **Handle edge cases** with appropriate error flows
+
+## Migration from Colang 1.0
+
+Key changes:
+
+| Colang 1.0 | Colang 2.0 |
+|------------|------------|
+| `define flow` | `flow` |
+| `define user` | `flow user [past tense]` |
+| `define bot` | `flow bot [imperative]` |
+| `execute` | `await` |
+| `else when` | `or when` |
+| `stop` | `abort` |
+| No imports | `import` modules |
+| All flows active | Explicit `activate` |
+
+See the [Migration Guide](/colang/v2/migration) for details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="rocket" href="/colang/v2/getting-started">
+    Build your first Colang 2.0 bot
+  </Card>
+  <Card title="Migration Guide" icon="arrow-right" href="/colang/v2/migration">
+    Migrate from Colang 1.0
+  </Card>
+  <Card title="Overview" icon="info" href="/colang/v2/overview">
+    Colang 2.0 features and changes
+  </Card>
+  <Card title="v1 Syntax" icon="arrow-left" href="/colang/v1/syntax">
+    Colang 1.0 reference
+  </Card>
+</CardGroup>

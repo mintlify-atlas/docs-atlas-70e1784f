@@ -1,0 +1,129 @@
+---
+title: Deployment Overview
+description: Overview of deployment options for NeMo Guardrails applications.
+---
+
+# Deployment Overview
+
+NeMo Guardrails can be deployed in various environments depending on your requirements. This guide provides an overview of the available deployment options.
+
+## Deployment Options
+
+You can deploy NeMo Guardrails in the following ways:
+
+### Local Server
+
+The quickest way to get started is running the server locally on your development machine.
+
+<Steps>
+  <Step title="Install NeMo Guardrails">
+    Install the package using pip:
+    ```bash
+    pip install nemoguardrails
+    ```
+  </Step>
+
+  <Step title="Start the Server">
+    Run the server with your configuration:
+    ```bash
+    nemoguardrails server --config=/path/to/config
+    ```
+    
+    By default, the server runs on port 8000.
+  </Step>
+
+  <Step title="Test the Deployment">
+    Test your deployment with a simple curl command:
+    ```bash
+    curl -X POST http://localhost:8000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{
+        "messages": [{"role": "user", "content": "Hello!"}]
+      }'
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The local server is ideal for development and testing but not recommended for production use.
+</Note>
+
+### Docker Container
+
+Docker provides a consistent, isolated environment for deploying NeMo Guardrails.
+
+**Benefits:**
+- Consistent environment across development and production
+- Easy dependency management
+- Simplified deployment and scaling
+- Isolation from host system
+
+See the [Docker Deployment](./docker) guide for detailed instructions.
+
+### Production Deployment
+
+For production workloads, you'll need additional considerations:
+
+- **Scalability**: Load balancing and horizontal scaling
+- **Security**: API authentication, TLS/SSL, secrets management
+- **Monitoring**: Logging, metrics, and observability
+- **High Availability**: Redundancy and failover mechanisms
+
+See the [Production Deployment](./production) guide for best practices.
+
+## Choosing a Deployment Method
+
+Use this guide to select the appropriate deployment method:
+
+| Deployment Type | Use Case | Complexity |
+|----------------|----------|------------|
+| Local Server | Development, testing, demos | Low |
+| Docker | Staging, consistent environments | Medium |
+| Production | Production workloads, enterprise | High |
+
+## Server Configuration
+
+The NeMo Guardrails server supports several configuration options:
+
+```bash
+nemoguardrails server \
+  --config=/path/to/config \
+  --port=8000 \
+  --verbose
+```
+
+**Common Options:**
+- `--config`: Path to your guardrails configuration directory
+- `--port`: Port to run the server on (default: 8000)
+- `--verbose`: Enable verbose logging for debugging
+
+## API Endpoints
+
+The server exposes the following main endpoints:
+
+<Code>
+  ```
+  POST /v1/chat/completions
+  ```
+</Code>
+
+Chat completions endpoint compatible with OpenAI API format.
+
+<Code>
+  ```
+  GET /v1/rails/config
+  ```
+</Code>
+
+Retrieve the current rails configuration.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="./docker">
+    Deploy using Docker containers
+  </Card>
+  <Card title="Production Deployment" icon="server" href="./production">
+    Best practices for production
+  </Card>
+</CardGroup>

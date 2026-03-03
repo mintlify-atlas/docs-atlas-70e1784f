@@ -1,0 +1,478 @@
+---
+title: Retrieval Rails
+description: Validate retrieved knowledge and check facts against context in RAG pipelines.
+---
+
+# Retrieval Rails
+
+Retrieval rails execute during **RAG (Retrieval-Augmented Generation) pipelines** to validate retrieved documents, filter chunks, and fact-check bot responses against the knowledge base.
+
+## When Retrieval Rails Execute
+
+Retrieval rails run at two key points in RAG workflows:
+
+```
+Query → Retrieve Docs → Retrieval Rails → LLM → Fact Check → Response
+                        ↓                        ↓
+                   Filter/Validate         Verify Against Context
+```
+
+<Note>
+Retrieval rails ensure only trusted, relevant, and safe content is used as context for LLM responses.
+</Note>
+
+## Built-in Retrieval Rails
+
+### Fact Checking with AlignScore
+
+Verifies bot responses against retrieved evidence using information alignment scoring.
+
+#### Configuration
+
+```yaml
+rails:
+  config:
+    fact_checking:
+      fallback_to_self_check: true
+      parameters:
+        endpoint: "http://localhost:5000/alignscore"
+
+  output:
+    flows:
+      - alignscore check facts
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/factchecking/align_score/actions.py:41:
+
+```python
+@action(output_mapping=alignscore_check_facts_mapping)
+async def alignscore_check_facts(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llm: Optional[BaseLLM] = None,
+    config: Optional[RailsConfig] = None,
+    **kwargs,
+):
+    """Checks the facts for the bot response using an information alignment score."""
+    fact_checking_config = llm_task_manager.config.rails.config.fact_checking
+    fallback_to_self_check = fact_checking_config.fallback_to_self_check
+
+    alignscore_api_url = fact_checking_config.parameters.get("endpoint")
+
+    evidence = context.get("relevant_chunks", [])
+    response = context.get("bot_message")
+
+    alignscore = await alignscore_request(alignscore_api_url, evidence, response)
+    if alignscore is None:
+        log.warning("AlignScore endpoint not set up properly. Falling back to the ask_llm approach for fact-checking.")
+        if fallback_to_self_check:
+            return await self_check_facts(llm_task_manager, context, llm, config)
+        else:
+            return 1.0  # Assume OK if we can't verify
+    else:
+        return alignscore
+```
+
+Output mapping:
+
+```python
+def alignscore_check_facts_mapping(result: float) -> bool:
+    """Returns True (block) if score is below 0.5"""
+    THRESHOLD = 0.5
+    return result < THRESHOLD
+```
+
+### Self Check Facts
+
+Uses the main LLM to verify responses against retrieved evidence.
+
+#### Configuration
+
+```yaml
+rails:
+  output:
+    flows:
+      - self check facts
+```
+
+#### Action Implementation
+
+From nemoguardrails/library/self_check/facts/actions.py:43:
+
+```python
+@action(output_mapping=mapping_self_check_facts)
+async def self_check_facts(
+    llm_task_manager: LLMTaskManager,
+    context: Optional[dict] = None,
+    llm: Optional[BaseLLM] = None,
+    config: Optional[RailsConfig] = None,
+    **kwargs,
+):
+    """Checks the facts for the bot response by appropriately prompting the base llm."""
+    _MAX_TOKENS = 3
+    evidence = context.get("relevant_chunks", [])
+    response = context.get("bot_message")
+
+    if not evidence:
+        # If there is no evidence, we always return true
+        return True
+        
+    task = Task.SELF_CHECK_FACTS
+    prompt = llm_task_manager.render_task_prompt(
+        task=task,
+        context={
+            "evidence": evidence,
+            "response": response,
+        },
+    )
+    stop = llm_task_manager.get_stop_tokens(task=task)
+    max_tokens = llm_task_manager.get_max_tokens(task=task)
+    max_tokens = max_tokens or _MAX_TOKENS
+
+    llm_call_info_var.set(LLMCallInfo(task=task.value))
+
+    response = await llm_call(
+        llm,
+        prompt,
+        stop=stop,
+        llm_params={"temperature": config.lowest_temperature, "max_tokens": max_tokens},
+    )
+
+    if llm_task_manager.has_output_parser(task):
+        result = llm_task_manager.parse_task_output(task, output=response)
+    else:
+        result = llm_task_manager.parse_task_output(task, output=response, forced_output_parser="is_content_safe")
+
+    is_not_safe = result[0]
+    result = float(not is_not_safe)
+    return result
+```
+
+Mapping function:
+
+```python
+def mapping_self_check_facts(result: float) -> bool:
+    """Returns True (block) if score is below 0.5"""
+    THRESHOLD = 0.5
+    return result < THRESHOLD
+```
+
+### AutoAlign Fact Checking
+
+Integration with AutoAlign for advanced fact verification.
+
+#### Configuration
+
+From examples/configs/autoalign/autoalign_factcheck_config/config.yml:
+
+```yaml
+rails:
+  config:
+    autoalign:
+      parameters:
+        fact_check_endpoint: "https://<AUTOALIGN_ENDPOINT>/content_moderation"
+        multi_language: False
+      output:
+        guardrails_config:
+          {
+            "fact_checker": {
+              "mode": "DETECT",
+              "knowledge_base": [
+                {
+                  "add_block_domains": [],
+                  "documents": [],
+                  "knowledgeType": "web",
+                  "num_urls": 3,
+                  "search_engine": "Google",
+                  "static_knowledge_source_type": ""
+                }
+              ],
+              "content_processor": {
+                "max_tokens_per_chunk": 100,
+                "max_chunks_per_source": 3,
+                "use_all_chunks": false,
+                "name": "Semantic Similarity",
+                "filter_method": {
+                  "name": "Match Threshold",
+                  "threshold": 0.5
+                },
+                "content_filtering": true,
+                "content_filtering_threshold": 0.6,
+                "factcheck_max_text": false,
+                "max_input_text": 150
+              },
+              "mitigation_with_evidence": false
+            },
+          }
+  output:
+    flows:
+      - autoalign factcheck output
+```
+
+### Sensitive Data Detection in Retrieval
+
+Filter PII from retrieved documents before using as context.
+
+#### Configuration
+
+```yaml
+rails:
+  config:
+    sensitive_data_detection:
+      retrieval:
+        entities:
+          - PERSON
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - SSN
+        score_threshold: 0.5
+```
+
+#### Usage in Flows
+
+```colang
+define flow sanitize retrieved chunks
+  user ask question
+  $relevant_chunks = execute retrieve_relevant_chunks
+  
+  # Filter sensitive data from chunks
+  for $chunk in $relevant_chunks
+    $has_sensitive = execute detect_sensitive_data(source="retrieval", text=$chunk)
+    if $has_sensitive
+      $chunk = execute mask_sensitive_data(source="retrieval", text=$chunk)
+  
+  bot provide answer
+```
+
+## Usage Examples
+
+### Conditional Fact Checking
+
+Only check facts for specific topics:
+
+From examples/configs/autoalign/autoalign_groundness_config/rails/factcheck.co:
+
+```colang
+define user ask about pluto
+  "What is pluto?"
+  "How many moons does pluto have?"
+  "Is pluto a planet?"
+
+define flow answer pluto question
+  user ask about pluto
+  # For pluto questions, we activate the fact checking.
+  $check_facts = True
+  bot provide pluto answer
+```
+
+### Custom Accuracy Thresholds
+
+From examples/configs/rag/fact_checking/rails/factcheck.co:
+
+```colang
+define flow answer report question
+  user ask about report
+  $check_facts = True
+  bot provide report answer
+
+define subflow check facts
+  """Add the ability to flag potentially inaccurate responses.
+
+  Flag potentially inaccurate responses when the confidence is between 0.4 and 0.6.
+  """
+  if $check_facts == True
+    $check_facts = False
+
+    $accuracy = execute check_facts
+    
+    # Hard block if accuracy is very low
+    if $accuracy < 0.4
+      if $config.enable_rails_exceptions
+        create event FactCheckLowAccuracyRailException(message="Fact check triggered. The accuracy of the response is below 0.4.")
+      else
+        bot inform answer unknown
+      stop
+
+    # Warning if accuracy is medium
+    if $accuracy < 0.6
+      $bot_message_potentially_inaccurate = True
+
+define flow flag potentially inaccurate response
+  bot ...
+
+  if $bot_message_potentially_inaccurate
+    $bot_message_potentially_inaccurate = False
+    if $config.enable_rails_exceptions
+      create event PotentiallyInaccurateResponseRailException(message="Potentially inaccurate response detected.")
+    else
+      bot inform answer potentially inaccurate
+    stop
+
+define bot inform answer potentially inaccurate
+  "Attention: the answer above is potentially inaccurate."
+```
+
+This example shows:
+- **Block** responses with accuracy < 0.4
+- **Warn** for accuracy between 0.4 and 0.6
+- **Allow** for accuracy ≥ 0.6
+
+### Multi-Stage Retrieval Validation
+
+```colang
+define flow validated rag
+  user ask question
+  
+  # Stage 1: Retrieve documents
+  $documents = execute retrieve_documents
+  
+  # Stage 2: Filter sensitive data
+  for $doc in $documents
+    $has_pii = execute detect_sensitive_data(source="retrieval", text=$doc)
+    if $has_pii
+      $documents = remove($documents, $doc)
+  
+  # Stage 3: Rank and select top chunks
+  $relevant_chunks = execute rank_and_select($documents, top_k=5)
+  
+  # Stage 4: Generate response
+  bot provide answer
+  
+  # Stage 5: Fact check against chunks
+  $accuracy = execute self_check_facts
+  if $accuracy < 0.5
+    bot inform cannot verify answer
+    stop
+```
+
+## Advanced Configurations
+
+### Custom Fact Checking Prompts
+
+Override the default fact-checking task prompt:
+
+```yaml
+prompts:
+  - task: self_check_facts
+    content: |
+      You are given some evidence and a response.
+      
+      Evidence:
+      {{ evidence }}
+      
+      Response:
+      {{ response }}
+      
+      Is the response fully supported by the evidence?
+      Answer with 'yes' if supported, 'no' if not.
+```
+
+### Chunk-Level Validation
+
+```colang
+define flow validate each chunk
+  user ask question
+  $chunks = execute retrieve_chunks
+  
+  $validated_chunks = []
+  for $chunk in $chunks
+    # Check chunk quality
+    $relevance = execute compute_relevance($chunk, $user_message)
+    $has_sensitive = execute detect_sensitive_data(source="retrieval", text=$chunk)
+    
+    if $relevance > 0.7 and not $has_sensitive
+      $validated_chunks = append($validated_chunks, $chunk)
+  
+  $relevant_chunks = $validated_chunks
+  bot provide answer
+```
+
+### Fallback Strategies
+
+```colang
+define flow fact checked answer with fallback
+  user ask question
+  $relevant_chunks = execute retrieve_relevant_chunks
+  
+  if not $relevant_chunks
+    bot inform no information available
+    stop
+  
+  bot provide answer
+  
+  $accuracy = execute alignscore_check_facts
+  
+  if $accuracy < 0.5
+    # Try self-check as fallback
+    $accuracy = execute self_check_facts
+    
+    if $accuracy < 0.5
+      bot provide conservative answer
+      bot suggest human expert
+```
+
+## Best Practices
+
+1. **Always validate retrieved chunks** - Don't assume knowledge base quality
+2. **Use appropriate thresholds** - Tune accuracy thresholds based on domain risk
+3. **Provide fallbacks** - Have graceful degradation when fact checks fail
+4. **Filter sensitive data early** - Remove PII before using chunks as context
+5. **Cache fact check results** - Avoid redundant checks for similar responses
+6. **Monitor accuracy scores** - Track distribution to tune thresholds
+
+## Performance Considerations
+
+| Rail Type | Latency Impact | Accuracy |
+|-----------|----------------|----------|
+| AlignScore | Medium (~200-500ms) | High |
+| Self Check Facts | Medium (~200-500ms) | Medium-High |
+| AutoAlign | High (~1-2s) | Very High |
+| Sensitive Data Detection | Low (~50-100ms) | High |
+
+<Note>
+Fact-checking adds latency to every RAG response. Consider using it selectively for high-stakes queries.
+</Note>
+
+## Troubleshooting
+
+### No Evidence Available
+
+```colang
+define flow handle missing evidence
+  user ask question
+  $relevant_chunks = execute retrieve_relevant_chunks
+  
+  if not $relevant_chunks
+    bot inform no evidence
+    bot suggest alternative
+    stop
+```
+
+### AlignScore Endpoint Issues
+
+```yaml
+rails:
+  config:
+    fact_checking:
+      fallback_to_self_check: true  # Enable automatic fallback
+      parameters:
+        endpoint: "http://localhost:5000/alignscore"
+        timeout: 10  # seconds
+```
+
+From the implementation:
+
+```python
+if alignscore is None:
+    log.warning("AlignScore endpoint not set up properly. Falling back to the ask_llm approach for fact-checking.")
+    if fallback_to_self_check:
+        return await self_check_facts(llm_task_manager, context, llm, config)
+```
+
+## See Also
+
+- [Output Rails](/guardrails/output-rails) - Response validation
+- [Input Rails](/guardrails/input-rails) - Query validation
+- [RAG Configuration](/examples/basic-rag) - Setting up retrieval

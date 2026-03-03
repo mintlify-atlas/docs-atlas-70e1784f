@@ -1,0 +1,508 @@
+---
+title: QA System Example
+description: Build a question-answering system with fact-checking and hallucination detection
+---
+
+This example demonstrates how to build a robust question-answering system using NeMo Guardrails with knowledge base integration, fact-checking, and hallucination prevention.
+
+## Overview
+
+This QA system features:
+- **Knowledge base retrieval** for accurate answers
+- **Fact-checking** using AlignScore or self-check mechanisms
+- **Hallucination detection** to prevent fabricated answers
+- **Confidence scoring** for answer reliability
+- **Graceful degradation** when answers are uncertain
+
+## Basic QA System with Fact-Checking
+
+<Steps>
+  <Step title="Configuration">
+    <CodeGroup>
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo-instruct
+
+    rails:
+      output:
+        flows:
+          - self check facts
+
+    instructions:
+      - type: general
+        content: |
+          Below is a conversation between a bot and a user about recent job reports.
+          The bot is factual and concise. If the bot does not know the answer to a
+          question, it truthfully says it does not know.
+
+    sample_conversation: |
+      user "Hello there!"
+        express greeting
+      bot express greeting
+        "Hello! How can I assist you today?"
+      user "What can you do for me?"
+        ask about capabilities
+      bot respond about capabilities
+        "I am an AI assistant which helps answer questions based on a given knowledge base."
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Define conversation flows">
+    <CodeGroup>
+    ```colang rails/general.co
+    define user express greeting
+      "hi"
+      "hello"
+      "hey"
+
+    define user ask capabilities
+      "What can you do?"
+      "help"
+
+    define bot inform capabilities
+      "I am an example bot that illustrates fact checking and hallucination detection capabilities. Ask me about the documents in my knowledge base to test my fact checking abilities."
+
+    define flow capabilities
+      user ask capabilities
+      bot inform capabilities
+
+    define user ask knowledge base
+      "What is in your knowledge base?"
+      "What do you know?"
+      "What can I ask you about?"
+
+    define bot inform knowledge base
+      "You can ask me about anything! My knowledge base includes information about specific topics, which I can use for fact checking."
+
+    define flow knowledge base
+      user ask knowledge base
+      bot inform knowledge base
+
+    define flow
+      user express greeting
+      bot express greeting
+
+    define user ask general question
+      "What stocks should I buy?"
+      "What is the biggest city in the world?"
+      "Can you write an email?"
+
+    define flow
+      user ask general question
+      bot provide response
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Add knowledge base documents">
+    Place your documents in the `kb/` folder:
+
+    ```markdown kb/report.md
+    # Jobs Report - March 2023
+
+    Total nonfarm payroll employment rose by 236,000 in March, and the 
+    unemployment rate changed little at 3.5 percent, the U.S. Bureau of 
+    Labor Statistics reported today.
+
+    ## Key Statistics
+
+    - Unemployment rate: 3.5%
+    - Jobs added: 236,000
+    - Labor force participation rate: 62.6%
+
+    ## Industry Breakdown
+
+    - Leisure and hospitality: +72,000 jobs
+    - Government: +47,000 jobs
+    - Professional and business services: +39,000 jobs
+    - Health care: +34,000 jobs
+    - Transportation and warehousing: +10,000 jobs
+    ```
+  </Step>
+</Steps>
+
+## Advanced QA with Custom Fact-Checking
+
+<Steps>
+  <Step title="Configure AlignScore fact-checking">
+    <CodeGroup>
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo-instruct
+
+    rails:
+      config:
+        fact_checking:
+          parameters:
+            endpoint: "http://localhost:5123/alignscore_base"
+
+      output:
+        flows:
+          - alignscore check facts
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Create custom fact-checking flow">
+    <CodeGroup>
+    ```colang rails/factcheck.co
+    define user ask about report
+      "What was last month's unemployment rate?"
+      "Which industry added the most jobs?"
+      "How many jobs were added in the transportation industry?"
+
+    define flow answer report question
+      user ask about report
+
+      # For report questions, we activate the fact checking.
+      $check_facts = True
+      bot provide report answer
+
+    define subflow check facts
+      """Add the ability to flag potentially inaccurate responses.
+
+      Flag potentially inaccurate responses when the confidence is between 0.4 and 0.6.
+      """
+      # Check the facts when explicitly needed.
+      if $check_facts == True
+        $check_facts = False
+
+        $accuracy = execute check_facts
+        if $accuracy < 0.4
+          bot inform answer unknown
+          stop
+
+        if $accuracy < 0.6
+          # We need to provide a warning in this case
+          $bot_message_potentially_inaccurate = True
+
+    define flow flag potentially inaccurate response
+      """Tell the user that the previous answer is potentially inaccurate."""
+      bot ...
+
+      if $bot_message_potentially_inaccurate
+        $bot_message_potentially_inaccurate = False
+        bot inform answer potentially inaccurate
+        stop
+
+    define bot inform answer potentially inaccurate
+      "Attention: the answer above is potentially inaccurate."
+
+    define bot inform answer unknown
+      "I don't have enough information to answer that accurately."
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Custom RAG with Fact & Hallucination Checking
+
+<Steps>
+  <Step title="Configuration with multiple checks">
+    <CodeGroup>
+    ```yaml config.yml
+    models:
+      - type: main
+        engine: openai
+        model: gpt-3.5-turbo
+
+    rails:
+      output:
+        flows:
+          - self check facts
+          - self check hallucination
+
+    prompts:
+      - task: self_check_facts
+        content: |-
+          You are given a task to identify if the hypothesis is grounded and entailed to the evidence.
+          You will only use the contents of the evidence and not rely on external knowledge.
+          Answer with yes/no. "evidence": {{ evidence }} "hypothesis": {{ response }} "entails":
+
+      - task: self_check_hallucinations
+        content: |-
+          You are given a task to identify if the hypothesis is in agreement with the context below.
+          You will only use the contents of the context and not rely on external knowledge.
+          Answer with yes/no. "context": {{ paragraph }} "hypothesis": {{ statement }} "agreement":
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Custom RAG implementation">
+    <CodeGroup>
+    ```python config.py
+    from langchain_core.language_models import BaseLLM
+    from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import PromptTemplate
+
+    from nemoguardrails import LLMRails
+    from nemoguardrails.actions.actions import ActionResult
+    from nemoguardrails.kb.kb import KnowledgeBase
+
+    TEMPLATE = """Use the following pieces of context to answer the question at the end.
+    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    Use three sentences maximum and keep the answer as concise as possible.
+
+    {context}
+
+    Question: {question}
+
+    Helpful Answer:"""
+
+
+    async def rag(context: dict, llm: BaseLLM, kb: KnowledgeBase) -> ActionResult:
+        user_message = context.get("last_user_message")
+        context_updates = {}
+
+        # Retrieve relevant chunks from knowledge base
+        chunks = await kb.search_relevant_chunks(user_message)
+        
+        if not chunks:
+            return ActionResult(
+                return_value="I don't have information about that in my knowledge base.",
+                context_updates={"no_kb_results": True}
+            )
+        
+        relevant_chunks = "\n".join([chunk["body"] for chunk in chunks])
+        
+        # Store chunks for fact-checking
+        context_updates["relevant_chunks"] = relevant_chunks
+
+        # Use custom prompt template
+        prompt_template = PromptTemplate.from_template(TEMPLATE)
+        input_variables = {"question": user_message, "context": relevant_chunks}
+        
+        # Store template for hallucination-checking
+        context_updates["_last_bot_prompt"] = prompt_template.format(**input_variables)
+
+        # Generate answer using LangChain
+        output_parser = StrOutputParser()
+        chain = prompt_template | llm | output_parser
+        answer = await chain.ainvoke(input_variables)
+
+        return ActionResult(return_value=answer, context_updates=context_updates)
+
+
+    def init(app: LLMRails):
+        app.register_action(rag, "rag")
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="QA flow with checking">
+    <CodeGroup>
+    ```colang rails/output.co
+    define user ask about report
+      "What was last month's unemployment rate?"
+      "Which industry added the most jobs?"
+      "How many jobs were added in the transportation industry?"
+
+    define flow answer report question
+      user ...
+      $answer = execute rag()
+      $check_facts = True
+      $check_hallucination = True
+      bot $answer
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Usage Examples
+
+<CodeGroup>
+```python Python API
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Ask a question that can be answered from KB
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "What was the unemployment rate in March 2023?"
+    }]
+)
+print(response["content"])
+# Output: "The unemployment rate in March 2023 was 3.5 percent."
+
+# Ask a question not in KB
+response = rails.generate(
+    messages=[{
+        "role": "user",
+        "content": "What will the unemployment rate be next month?"
+    }]
+)
+print(response["content"])
+# Output: "I don't have enough information to answer that accurately."
+```
+
+```bash CLI
+nemoguardrails chat --config=./config
+```
+</CodeGroup>
+
+## Conversation Examples
+
+<Steps>
+  <Step title="Accurate answer from KB">
+    ```
+    User: What was the unemployment rate last month?
+    
+    → Retrieves from knowledge base
+    → Fact-checks against retrieved chunks
+    → Accuracy score: 0.95 (high confidence)
+    
+    Bot: The unemployment rate was 3.5 percent, which changed little from 
+         the previous month.
+    ```
+  </Step>
+
+  <Step title="Potentially inaccurate answer">
+    ```
+    User: How many jobs were added in retail?
+    
+    → Retrieves from knowledge base
+    → Fact-checks against retrieved chunks  
+    → Accuracy score: 0.55 (medium confidence)
+    
+    Bot: Retail trade employment changed little in March, with a net change 
+         of -15,000 jobs.
+         
+         Attention: the answer above is potentially inaccurate.
+    ```
+  </Step>
+
+  <Step title="No information available">
+    ```
+    User: What will next month's unemployment rate be?
+    
+    → Retrieves from knowledge base
+    → No relevant information found
+    → Accuracy score: 0.2 (low confidence)
+    
+    Bot: I don't have enough information to answer that accurately.
+    ```
+  </Step>
+
+  <Step title="Off-topic question">
+    ```
+    User: What stocks should I buy?
+    
+    → Not related to knowledge base
+    → LLM attempts to answer
+    → Hallucination detection activates
+    
+    Bot: I can only answer questions about the information in my knowledge base. 
+         I don't have information about stock recommendations.
+    ```
+  </Step>
+</Steps>
+
+## Confidence Thresholds
+
+Adjust thresholds based on your accuracy requirements:
+
+```yaml
+rails:
+  config:
+    fact_checking:
+      parameters:
+        endpoint: "http://localhost:5123/alignscore_base"
+        # Reject answers below this threshold
+        min_accuracy: 0.4
+        # Warn users for answers in this range  
+        warn_accuracy: 0.6
+```
+
+Then in your flow:
+
+```colang
+define subflow check facts
+  if $check_facts == True
+    $check_facts = False
+    $accuracy = execute check_facts
+    
+    # Reject low-confidence answers
+    if $accuracy < 0.4
+      bot inform answer unknown
+      stop
+    
+    # Warn for medium-confidence answers
+    if $accuracy < 0.6
+      $bot_message_potentially_inaccurate = True
+    
+    # Accept high-confidence answers (0.6+)
+```
+
+## Testing Your QA System
+
+<CodeGroup>
+```python test_qa.py
+from nemoguardrails import LLMRails, RailsConfig
+
+config = RailsConfig.from_path("./config")
+rails = LLMRails(config)
+
+# Test cases
+test_questions = [
+    # Should answer correctly
+    ("What was the unemployment rate?", "3.5"),
+    
+    # Should answer correctly
+    ("How many jobs were added?", "236,000"),
+    
+    # Should refuse (future prediction)
+    ("What will next month's rate be?", "don't know"),
+    
+    # Should refuse (off-topic)
+    ("What's the weather?", "knowledge base"),
+]
+
+for question, expected in test_questions:
+    response = rails.generate(messages=[{"role": "user", "content": question}])
+    answer = response["content"].lower()
+    
+    print(f"Q: {question}")
+    print(f"A: {answer}")
+    print(f"✓ Pass" if expected.lower() in answer else "✗ Fail")
+    print()
+```
+</CodeGroup>
+
+## Best Practices
+
+1. **Curate Quality KB** - Ensure knowledge base has accurate, well-structured content
+2. **Set Appropriate Thresholds** - Balance false positives vs. false negatives
+3. **Provide Context** - Include metadata in KB documents for better retrieval
+4. **Monitor Accuracy** - Track fact-checking scores over time
+5. **Handle Uncertainty** - Gracefully refuse to answer when confidence is low
+6. **Update Regularly** - Keep knowledge base current with latest information
+
+## Project Structure
+
+```
+qa-system/
+├── config.yml
+├── config.py              # Custom RAG action
+├── rails/
+│   ├── general.co        # General flows
+│   ├── factcheck.co      # Fact-checking logic
+│   └── output.co         # Output rails
+└── kb/                    # Knowledge base
+    ├── report.md
+    ├── faq.md
+    └── documentation.md
+```
+
+## Related Examples
+
+- [Basic RAG](/examples/basic-rag) - Simple RAG implementation
+- [Customer Support](/examples/customer-support) - Production QA system
+- [Custom Guardrails](/examples/custom-guardrails) - Advanced fact-checking

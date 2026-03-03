@@ -1,0 +1,255 @@
+---
+title: Actions
+description: Action decorators and result types for custom actions
+---
+
+## Action Decorator
+
+The `@action` decorator is used to mark functions or classes as actions that can be called from Colang flows.
+
+### action
+
+```python
+def action(
+    is_system_action: bool = False,
+    name: Optional[str] = None,
+    execute_async: bool = False,
+    output_mapping: Optional[Callable[[Any], bool]] = None
+) -> Callable[[T], T]
+```
+
+<ParamField path="is_system_action" type="bool" default="False">
+  Flag indicating if the action is a system action.
+</ParamField>
+
+<ParamField path="name" type="Optional[str]">
+  The name to associate with the action. If not provided, uses the function name.
+</ParamField>
+
+<ParamField path="execute_async" type="bool" default="False">
+  Whether the function should be executed in async mode.
+</ParamField>
+
+<ParamField path="output_mapping" type="Optional[Callable[[Any], bool]]">
+  A function to interpret the action's result. It accepts the return value and returns True if the output is not safe.
+</ParamField>
+
+<CodeGroup>
+```python Example - Basic Action
+from nemoguardrails.actions import action
+
+@action()
+def get_weather(city: str) -> str:
+    """Get weather information for a city."""
+    return f"The weather in {city} is sunny."
+```
+
+```python Example - Async Action
+from nemoguardrails.actions import action
+import aiohttp
+
+@action(execute_async=True)
+async def fetch_data(url: str) -> dict:
+    """Fetch data from an API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.json()
+```
+
+```python Example - Action with Output Mapping
+from nemoguardrails.actions import action
+
+def is_inappropriate(response: str) -> bool:
+    """Check if response contains inappropriate content."""
+    return "inappropriate" in response.lower()
+
+@action(output_mapping=is_inappropriate)
+def generate_response(query: str) -> str:
+    """Generate a response to user query."""
+    return f"Response to: {query}"
+```
+
+```python Example - System Action
+from nemoguardrails.actions import action
+
+@action(is_system_action=True, name="log_event")
+def custom_logger(event_type: str, data: dict) -> None:
+    """Log events to custom logging system."""
+    print(f"Event: {event_type}, Data: {data}")
+```
+</CodeGroup>
+
+## ActionResult
+
+Data class representing the result of an action execution.
+
+```python
+@dataclass
+class ActionResult:
+    return_value: Optional[Any] = None
+    events: Optional[List[dict]] = None
+    context_updates: Optional[dict] = field(default_factory=dict)
+```
+
+<ParamField path="return_value" type="Optional[Any]">
+  The value returned by the action.
+</ParamField>
+
+<ParamField path="events" type="Optional[List[dict]]">
+  The events that should be added to the event stream.
+</ParamField>
+
+<ParamField path="context_updates" type="Optional[dict]">
+  Updates made to the context by this action.
+</ParamField>
+
+<CodeGroup>
+```python Example - Returning ActionResult
+from nemoguardrails.actions import action, ActionResult
+
+@action()
+def process_order(order_id: str) -> ActionResult:
+    """Process an order and update context."""
+    # Process the order
+    status = "completed"
+    
+    return ActionResult(
+        return_value={"order_id": order_id, "status": status},
+        events=[{"type": "OrderProcessed", "order_id": order_id}],
+        context_updates={"last_order_id": order_id}
+    )
+```
+
+```python Example - Generating Events
+from nemoguardrails.actions import action, ActionResult
+
+@action()
+def send_notification(message: str, user_id: str) -> ActionResult:
+    """Send notification and track in event stream."""
+    # Send notification logic here
+    
+    return ActionResult(
+        return_value=True,
+        events=[
+            {"type": "NotificationSent", "user_id": user_id},
+            {"type": "MessageDelivered", "content": message}
+        ],
+        context_updates={"last_notification": message}
+    )
+```
+</CodeGroup>
+
+## Action Parameters
+
+Actions can access various parameters automatically injected by the runtime:
+
+<ParamField path="context" type="dict">
+  The current context dictionary containing variables.
+</ParamField>
+
+<ParamField path="llm" type="BaseLLM">
+  The main LLM instance.
+</ParamField>
+
+<ParamField path="config" type="RailsConfig">
+  The rails configuration object.
+</ParamField>
+
+<ParamField path="kb" type="KnowledgeBase">
+  The knowledge base instance (if configured).
+</ParamField>
+
+<CodeGroup>
+```python Example - Using Injected Parameters
+from nemoguardrails.actions import action
+from nemoguardrails import RailsConfig
+
+@action()
+def custom_search(query: str, context: dict, kb, config: RailsConfig) -> str:
+    """Search knowledge base with context awareness."""
+    user_name = context.get("user_name", "User")
+    
+    # Search the knowledge base
+    results = kb.search(query, max_results=config.custom_data.get("max_results", 5))
+    
+    return f"Hello {user_name}, here are the results: {results}"
+```
+
+```python Example - Using LLM in Action
+from nemoguardrails.actions import action
+
+@action()
+async def enhance_response(message: str, llm) -> str:
+    """Enhance response using LLM."""
+    enhanced = await llm.apredict(
+        f"Make this response more professional: {message}"
+    )
+    return enhanced
+```
+</CodeGroup>
+
+## Registering Actions
+
+Actions can be registered with the LLMRails instance:
+
+<CodeGroup>
+```python Example - Register Action
+from nemoguardrails import RailsConfig, LLMRails
+from nemoguardrails.actions import action
+
+@action()
+def my_custom_action(param: str) -> str:
+    return f"Processed: {param}"
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+rails.register_action(my_custom_action)
+```
+
+```python Example - Register with Custom Name
+from nemoguardrails import RailsConfig, LLMRails
+
+def process_data(data: dict) -> dict:
+    return {"processed": True, **data}
+
+config = RailsConfig.from_path("config")
+rails = LLMRails(config)
+
+rails.register_action(process_data, name="process_user_data")
+```
+</CodeGroup>
+
+## Using Actions in Colang
+
+Once registered, actions can be called from Colang flows:
+
+<CodeGroup>
+```colang Example - Call Action
+define flow handle weather query
+  user expressed interest in weather
+  $city = "New York"
+  $weather = execute get_weather(city=$city)
+  bot $weather
+```
+
+```colang Example - Action with Result
+define flow process order
+  user requested order
+  $order_id = $user_input
+  $result = execute process_order(order_id=$order_id)
+  
+  if $result.status == "completed"
+    bot "Your order has been processed successfully!"
+  else
+    bot "There was an issue processing your order."
+```
+</CodeGroup>
+
+## Best Practices
+
+1. **Use Type Hints**: Always use type hints for action parameters and return values
+2. **Handle Errors**: Use try-except blocks to handle potential errors gracefully
+3. **Return ActionResult**: Use `ActionResult` when you need to update context or emit events
+4. **Async When Needed**: Use `execute_async=True` for I/O-bound operations
+5. **Document Actions**: Provide clear docstrings explaining what the action does

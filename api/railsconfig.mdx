@@ -1,0 +1,277 @@
+---
+title: RailsConfig
+description: Configuration class for NeMo Guardrails
+---
+
+## RailsConfig
+
+The `RailsConfig` class represents the configuration for a guardrails application. It defines models, rails, prompts, and other settings.
+
+### Loading Configuration
+
+#### from_path
+
+Load a configuration from a directory or file path.
+
+```python
+@classmethod
+def from_path(
+    config_path: str,
+    test_set_percentage: float = 0.0
+) -> RailsConfig
+```
+
+<ParamField path="config_path" type="str" required>
+  Path to a directory containing configuration files (config.yml, .co files) or a single .co file.
+</ParamField>
+
+<ParamField path="test_set_percentage" type="float" default="0.0">
+  The percentage of examples to use for testing.
+</ParamField>
+
+<ResponseField name="config" type="RailsConfig">
+  A RailsConfig instance loaded from the specified path.
+</ResponseField>
+
+<CodeGroup>
+```python Example - Load from Directory
+from nemoguardrails import RailsConfig
+
+config = RailsConfig.from_path("path/to/config")
+```
+
+```python Example - Load from File
+from nemoguardrails import RailsConfig
+
+config = RailsConfig.from_path("path/to/config.yml")
+```
+</CodeGroup>
+
+#### from_content
+
+Create a configuration from YAML and Colang content strings.
+
+```python
+@classmethod
+def from_content(
+    colang_content: Optional[str] = None,
+    yaml_content: Optional[str] = None
+) -> RailsConfig
+```
+
+<ParamField path="colang_content" type="Optional[str]">
+  Colang (.co) file content as a string.
+</ParamField>
+
+<ParamField path="yaml_content" type="Optional[str]">
+  YAML configuration content as a string.
+</ParamField>
+
+<CodeGroup>
+```python Example
+from nemoguardrails import RailsConfig
+
+yaml_content = """
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+"""
+
+colang_content = """
+define user express greeting
+  "hello"
+  "hi"
+
+define bot express greeting
+  "Hello! How can I help you?"
+"""
+
+config = RailsConfig.from_content(
+    colang_content=colang_content,
+    yaml_content=yaml_content
+)
+```
+</CodeGroup>
+
+### Configuration Fields
+
+<ParamField path="models" type="List[Model]" default="[]">
+  List of LLM model configurations. Each model has:
+  - `type`: "main", "embeddings", "content_safety", etc.
+  - `engine`: Provider name ("openai", "nvidia_ai_endpoints", etc.)
+  - `model`: Model name ("gpt-4o", "llama-3.1-8b", etc.)
+  - `parameters`: Additional parameters for the model
+  - `cache`: Cache configuration for the model
+</ParamField>
+
+<ParamField path="rails" type="Rails">
+  Configuration for different types of rails:
+  - `input`: Input rails configuration
+  - `output`: Output rails configuration
+  - `retrieval`: Retrieval rails configuration
+  - `dialog`: Dialog rails configuration
+  - `tool_input`: Tool input rails configuration
+  - `tool_output`: Tool output rails configuration
+  - `config`: Additional rail-specific configuration (fact checking, jailbreak detection, etc.)
+</ParamField>
+
+<ParamField path="prompts" type="List[TaskPrompt]" default="[]">
+  List of custom prompts for specific tasks. Each prompt has:
+  - `task`: The task ID
+  - `content`: The prompt content (for text completion)
+  - `messages`: List of messages (for chat completion)
+  - `models`: Optional list of models this prompt applies to
+</ParamField>
+
+<ParamField path="user_messages" type="Dict[str, List[str]]" default="{}">
+  Mapping of canonical user message forms to example utterances.
+</ParamField>
+
+<ParamField path="bot_messages" type="Dict[str, List[str]]" default="{}">
+  Mapping of canonical bot message forms to example responses.
+</ParamField>
+
+<ParamField path="flows" type="List[dict]" default="[]">
+  List of Colang flow definitions.
+</ParamField>
+
+<ParamField path="instructions" type="List[Instruction]" default="[]">
+  Natural language instructions for the LLM.
+</ParamField>
+
+<ParamField path="docs" type="List[Document]" default="[]">
+  Documents for knowledge base/RAG.
+</ParamField>
+
+<ParamField path="colang_version" type="str" default="1.0">
+  The Colang version to use ("1.0" or "2.x").
+</ParamField>
+
+<ParamField path="passthrough" type="bool" default="False">
+  Whether to enable passthrough mode (direct LLM access without rails).
+</ParamField>
+
+<ParamField path="streaming" type="bool" default="False">
+  Whether streaming is enabled by default.
+</ParamField>
+
+<ParamField path="custom_data" type="dict" default="{}">
+  Custom configuration data for user-defined extensions.
+</ParamField>
+
+<ParamField path="knowledge_base" type="KnowledgeBaseConfig">
+  Configuration for the knowledge base.
+</ParamField>
+
+<ParamField path="tracing" type="TracingConfig">
+  Configuration for tracing/telemetry.
+</ParamField>
+
+### Model Configuration
+
+<CodeGroup>
+```yaml Example - Model Config
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+    parameters:
+      temperature: 0.7
+      max_tokens: 1000
+  
+  - type: embeddings
+    engine: openai
+    model: text-embedding-3-small
+  
+  - type: content_safety
+    engine: nvidia_ai_endpoints
+    model: nemoguard-guardrailsmoderation-8b
+    cache:
+      enabled: true
+      maxsize: 10000
+```
+</CodeGroup>
+
+### Rails Configuration
+
+<CodeGroup>
+```yaml Example - Rails Config
+rails:
+  input:
+    flows:
+      - check jailbreak
+      - check sensitive data
+  
+  output:
+    flows:
+      - check hallucination
+    streaming:
+      enabled: true
+      chunk_size: 200
+  
+  config:
+    jailbreak_detection:
+      nim_base_url: "http://localhost:8000/v1"
+    
+    sensitive_data_detection:
+      input:
+        entities:
+          - EMAIL_ADDRESS
+          - PHONE_NUMBER
+          - SSN
+```
+</CodeGroup>
+
+### Prompts Configuration
+
+<CodeGroup>
+```yaml Example - Custom Prompts
+prompts:
+  - task: self_check_input
+    content: |
+      Your task is to check if the user message below complies with the policy.
+      
+      User message: {{ user_message }}
+      
+      Policy: {{ policy }}
+      
+      Answer with 'yes' if compliant or 'no' if not.
+  
+  - task: generate_user_intent
+    messages:
+      - role: system
+        content: You are a helpful assistant that identifies user intent.
+      - role: user
+        content: "{{ user_message }}"
+```
+</CodeGroup>
+
+### Methods
+
+#### model_dump
+
+Export the configuration as a dictionary.
+
+```python
+def model_dump() -> dict
+```
+
+#### model_dump_json
+
+Export the configuration as a JSON string.
+
+```python
+def model_dump_json() -> str
+```
+
+### Combining Configurations
+
+You can combine multiple configurations using the `+` operator:
+
+```python
+base_config = RailsConfig.from_path("base")
+additional_config = RailsConfig.from_path("additional")
+
+combined_config = base_config + additional_config
+```

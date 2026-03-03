@@ -1,0 +1,309 @@
+---
+title: LLMRails
+description: Main class for interacting with NeMo Guardrails
+---
+
+## LLMRails
+
+The `LLMRails` class is the primary interface for creating and managing guardrails in NeMo Guardrails. It provides methods for generating responses with guardrails applied.
+
+### Constructor
+
+```python
+LLMRails(
+    config: RailsConfig,
+    llm: Optional[Union[BaseLLM, BaseChatModel]] = None,
+    verbose: bool = False
+)
+```
+
+<ParamField path="config" type="RailsConfig" required>
+  A `RailsConfig` object containing the guardrails configuration.
+</ParamField>
+
+<ParamField path="llm" type="Optional[Union[BaseLLM, BaseChatModel]]">
+  An optional LLM engine to use. If provided, this will be used as the main LLM and will take precedence over any main LLM specified in the config.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether the logging should be verbose or not.
+</ParamField>
+
+### Methods
+
+#### generate_async
+
+Generate a completion or next message asynchronously.
+
+```python
+async def generate_async(
+    prompt: Optional[str] = None,
+    messages: Optional[List[dict]] = None,
+    options: Optional[Union[dict, GenerationOptions]] = None,
+    state: Optional[Union[dict, State]] = None,
+    streaming_handler: Optional[StreamingHandler] = None
+) -> Union[str, dict, GenerationResponse, Tuple[dict, dict]]
+```
+
+<ParamField path="prompt" type="Optional[str]">
+  The prompt to be used for completion.
+</ParamField>
+
+<ParamField path="messages" type="Optional[List[dict]]">
+  The history of messages to be used to generate the next message. Messages have the format:
+  ```python
+  [
+      {"role": "context", "content": {"user_name": "John"}},
+      {"role": "user", "content": "Hello! How are you?"},
+      {"role": "assistant", "content": "I am fine, thank you!"},
+      {"role": "event", "event": {"type": "UserSilent"}}
+  ]
+  ```
+</ParamField>
+
+<ParamField path="options" type="Optional[Union[dict, GenerationOptions]]">
+  Options specific for the generation.
+</ParamField>
+
+<ParamField path="state" type="Optional[Union[dict, State]]">
+  The state object that should be used as the starting point.
+</ParamField>
+
+<ParamField path="streaming_handler" type="Optional[StreamingHandler]">
+  If specified, and the config supports streaming, the provided handler will be used for streaming.
+</ParamField>
+
+<ResponseField name="response" type="Union[str, dict, GenerationResponse, Tuple[dict, dict]]">
+  The completion (when a prompt is provided) or the next message.
+</ResponseField>
+
+<CodeGroup>
+```python Example - Basic Usage
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+
+response = await rails.generate_async(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+```python Example - With Options
+from nemoguardrails import RailsConfig, LLMRails
+from nemoguardrails.rails.llm.options import GenerationOptions
+
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+
+options = GenerationOptions(
+    rails={"input": True, "output": True},
+    log={"activated_rails": True}
+)
+
+response = await rails.generate_async(
+    messages=[{"role": "user", "content": "Hello!"}],
+    options=options
+)
+```
+</CodeGroup>
+
+#### generate
+
+Synchronous version of `generate_async`.
+
+```python
+def generate(
+    prompt: Optional[str] = None,
+    messages: Optional[List[dict]] = None,
+    options: Optional[Union[dict, GenerationOptions]] = None,
+    state: Optional[dict] = None
+) -> Union[str, dict, GenerationResponse, Tuple[dict, dict]]
+```
+
+#### stream_async
+
+Stream the response tokens asynchronously.
+
+```python
+def stream_async(
+    prompt: Optional[str] = None,
+    messages: Optional[List[dict]] = None,
+    options: Optional[Union[dict, GenerationOptions]] = None,
+    state: Optional[Union[dict, State]] = None,
+    include_metadata: bool = False,
+    generator: Optional[AsyncIterator[str]] = None
+) -> AsyncIterator[Union[str, dict]]
+```
+
+<ParamField path="include_metadata" type="bool" default="False">
+  Whether to include metadata in the streamed chunks.
+</ParamField>
+
+<ParamField path="generator" type="Optional[AsyncIterator[str]]">
+  If provided, uses this external generator for streaming.
+</ParamField>
+
+<ResponseField name="chunks" type="AsyncIterator[Union[str, dict]]">
+  An async iterator that yields token chunks as strings, or dicts if `include_metadata=True`.
+</ResponseField>
+
+<CodeGroup>
+```python Example - Streaming
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+
+async for chunk in rails.stream_async(
+    messages=[{"role": "user", "content": "Tell me a story"}]
+):
+    print(chunk, end="")
+```
+</CodeGroup>
+
+#### check_async
+
+Run rails on messages to check for policy violations.
+
+```python
+async def check_async(
+    messages: List[dict],
+    rail_types: Optional[List[RailType]] = None
+) -> RailsResult
+```
+
+<ParamField path="messages" type="List[dict]" required>
+  List of message dicts with 'role' and 'content' fields.
+</ParamField>
+
+<ParamField path="rail_types" type="Optional[List[RailType]]">
+  Optional list of rail types to run (e.g., `[RailType.INPUT]` or `[RailType.OUTPUT]`). When not provided, automatically determines which rails to run based on message roles.
+</ParamField>
+
+<ResponseField name="result" type="RailsResult">
+  Contains:
+  - `status`: PASSED, MODIFIED, or BLOCKED
+  - `content`: The final content after rails processing
+  - `rail`: Name of the rail that blocked (if blocked)
+</ResponseField>
+
+<CodeGroup>
+```python Example - Check Input
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+
+result = await rails.check_async([
+    {"role": "user", "content": "Harmful message"}
+])
+
+if result.status == RailStatus.BLOCKED:
+    print(f"Blocked by: {result.rail}")
+```
+</CodeGroup>
+
+#### check
+
+Synchronous version of `check_async`.
+
+```python
+def check(
+    messages: List[dict],
+    rail_types: Optional[List[RailType]] = None
+) -> RailsResult
+```
+
+#### register_action
+
+Register a custom action for the rails configuration.
+
+```python
+def register_action(
+    action: Callable,
+    name: Optional[str] = None
+) -> Self
+```
+
+<ParamField path="action" type="Callable" required>
+  The action function to register.
+</ParamField>
+
+<ParamField path="name" type="Optional[str]">
+  The name to use for the action. If not provided, uses the function name.
+</ParamField>
+
+<CodeGroup>
+```python Example - Register Action
+from nemoguardrails import RailsConfig, LLMRails
+
+config = RailsConfig.from_path("path/to/config")
+rails = LLMRails(config)
+
+def custom_action(context: dict):
+    return "Custom response"
+
+rails.register_action(custom_action, name="my_action")
+```
+</CodeGroup>
+
+#### register_filter
+
+Register a custom filter for the rails configuration.
+
+```python
+def register_filter(
+    filter_fn: Callable,
+    name: Optional[str] = None
+) -> Self
+```
+
+#### register_embedding_provider
+
+Register a custom embedding provider.
+
+```python
+def register_embedding_provider(
+    cls: Type[EmbeddingModel],
+    name: Optional[str] = None
+) -> Self
+```
+
+<ParamField path="cls" type="Type[EmbeddingModel]" required>
+  The embedding model class.
+</ParamField>
+
+<ParamField path="name" type="Optional[str]">
+  The name of the embedding engine.
+</ParamField>
+
+#### explain
+
+Returns detailed information about the latest generation.
+
+```python
+def explain() -> ExplainInfo
+```
+
+<ResponseField name="info" type="ExplainInfo">
+  An object containing detailed explanation information including LLM calls, activated rails, and Colang history.
+</ResponseField>
+
+### Attributes
+
+<ResponseField name="config" type="RailsConfig">
+  The rails configuration object.
+</ResponseField>
+
+<ResponseField name="llm" type="Optional[Union[BaseLLM, BaseChatModel]]">
+  The main LLM engine being used.
+</ResponseField>
+
+<ResponseField name="runtime" type="Runtime">
+  The Colang runtime instance.
+</ResponseField>
+
+<ResponseField name="verbose" type="bool">
+  Whether verbose logging is enabled.
+</ResponseField>

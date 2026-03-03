@@ -1,80 +1,535 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first LLM application with programmable guardrails in minutes
 ---
 
-## Get started in three steps
+This guide will walk you through creating your first guardrails-protected LLM application using NeMo Guardrails.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Steps>
+  <Step title="Install NeMo Guardrails">
+    If you haven't already, install NeMo Guardrails:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    pip install nemoguardrails
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    See the [Installation Guide](/installation) for detailed instructions.
+  </Step>
+  
+  <Step title="Get an OpenAI API Key">
+    For this quickstart, we'll use OpenAI's GPT models. Set your API key:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    export OPENAI_API_KEY="your-api-key-here"
+    ```
+    
+    <Note>
+    NeMo Guardrails supports many LLM providers. See the [Configuration Guide](https://docs.nvidia.com/nemo/guardrails/user-guides/configuration-guide.html) for other options.
+    </Note>
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Your First Guardrails Configuration
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+A guardrails configuration consists of two main components:
 
-### Step 3: Go live
+1. **config.yml** - Defines the LLM model and active guardrails
+2. **rails.co** or **main.co** - Contains Colang definitions for dialog flows
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+### Create the Configuration Directory
 
-## Next steps
+```bash
+mkdir -p my_guardrails_config
+cd my_guardrails_config
+```
 
-Now that you have your docs running, explore these key features:
+### Create config.yml
 
-<CardGroup cols={2}>
+Create a file named `config.yml` with the following content:
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+```
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+This configures NeMo Guardrails to use OpenAI's GPT-3.5 model as the main LLM.
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+### Create rails.co
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+Now create `rails.co` with basic dialog guardrails:
 
-</CardGroup>
+```colang rails.co
+define user express greeting
+  "Hello"
+  "Hi"
+  "Hey there"
+
+define bot express greeting
+  "Hello! How can I help you today?"
+
+define bot offer to help
+  "I'm here to assist you. What would you like to know?"
+
+define flow greeting
+  user express greeting
+  bot express greeting
+  bot offer to help
+
+# Prevent discussing off-topic subjects
+define user ask about politics
+  "What do you think about the government?"
+  "Which party should I vote for?"
+  "Tell me about the election"
+
+define bot refuse to respond about politics
+  "I'm sorry, but I'm not able to discuss political topics."
+
+define flow politics
+  user ask about politics
+  bot refuse to respond about politics
+```
+
+<Info>
+This Colang configuration defines:
+- A greeting flow that responds to user greetings
+- A topical rail that prevents political discussions
+</Info>
+
+## Using the Python API
+
+Now let's use the guardrails configuration in Python:
+
+<CodeGroup>
+```python basic_usage.py
+from nemoguardrails import LLMRails, RailsConfig
+
+# Load the guardrails configuration
+config = RailsConfig.from_path("./my_guardrails_config")
+rails = LLMRails(config)
+
+# Test the greeting flow
+response = rails.generate(
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response)
+# Output: {"role": "assistant", "content": "Hello! How can I help you today?"}
+
+# Test the politics guardrail
+response = rails.generate(
+    messages=[{"role": "user", "content": "What do you think about the government?"}]
+)
+print(response)
+# Output: {"role": "assistant", "content": "I'm sorry, but I'm not able to discuss political topics."}
+
+# Test a general question
+response = rails.generate(
+    messages=[{"role": "user", "content": "What is the capital of France?"}]
+)
+print(response)
+# The LLM will provide a normal response since this doesn't match any rails
+```
+
+```python async_usage.py
+import asyncio
+from nemoguardrails import LLMRails, RailsConfig
+
+async def main():
+    # Load the guardrails configuration
+    config = RailsConfig.from_path("./my_guardrails_config")
+    rails = LLMRails(config)
+    
+    # Use the async API
+    response = await rails.generate_async(
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    print(response)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```python conversation_history.py
+from nemoguardrails import LLMRails, RailsConfig
+
+# Load configuration
+config = RailsConfig.from_path("./my_guardrails_config")
+rails = LLMRails(config)
+
+# Maintain conversation history
+messages = []
+
+# First turn
+messages.append({"role": "user", "content": "Hello!"})
+response = rails.generate(messages=messages)
+messages.append(response)
+print(f"Bot: {response['content']}")
+
+# Second turn
+messages.append({"role": "user", "content": "What is Python?"})
+response = rails.generate(messages=messages)
+messages.append(response)
+print(f"Bot: {response['content']}")
+
+# The guardrails layer maintains context across turns
+```
+</CodeGroup>
+
+## Interactive Chat
+
+You can also test your configuration using the built-in CLI chat interface:
+
+```bash
+nemoguardrails chat --config=./my_guardrails_config
+```
+
+This starts an interactive session where you can chat with your guardrails-protected LLM:
+
+```
+> Hello!
+Hello! How can I help you today?
+
+> What do you think about politics?
+I'm sorry, but I'm not able to discuss political topics.
+
+> What is the capital of France?
+The capital of France is Paris.
+```
+
+## Running a Guardrails Server
+
+You can also run your configuration as an HTTP server:
+
+```bash
+nemoguardrails server --config=./my_guardrails_config
+```
+
+The server starts on `http://localhost:8000` and provides an OpenAI-compatible API:
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config_id": "my_guardrails_config",
+    "messages": [{
+      "role": "user",
+      "content": "Hello!"
+    }]
+  }'
+```
+
+## Adding Input and Output Rails
+
+Let's enhance our configuration with input and output moderation rails. Update your `config.yml`:
+
+```yaml config.yml
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  input:
+    flows:
+      - check jailbreak
+  
+  output:
+    flows:
+      - self check facts
+```
+
+Create `rails/input_rails.co`:
+
+```colang rails/input_rails.co
+define subflow check jailbreak
+  $result = execute check_jailbreak
+  
+  if $result
+    bot refuse to respond
+    stop
+```
+
+Create `rails/output_rails.co`:
+
+```colang rails/output_rails.co  
+define subflow self check facts
+  $check = execute self_check_facts
+  
+  if $check
+    bot inform answer may not be accurate
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+These built-in guardrails use LLM self-checking to detect jailbreak attempts and verify factual accuracy.
 </Note>
+
+## Real-World Example: ABC Company Bot
+
+Here's a complete example based on the ABC Bot from the source code - an employee handbook assistant with comprehensive guardrails:
+
+<CodeGroup>
+```yaml abc_bot/config.yml
+instructions:
+  - type: general
+    content: |
+      Below is a conversation between a user and a bot called the ABC Bot.
+      The bot is designed to answer employee questions about the ABC Company.
+      The bot is knowledgeable about the employee handbook and company policies.
+      If the bot does not know the answer to a question, it truthfully says it does not know.
+
+sample_conversation: |
+  user "Hi there. Can you help me with some questions I have about the company?"
+    express greeting and ask for assistance
+  bot express greeting and confirm and offer assistance
+    "Hi there! I'm here to help answer any questions you may have about the ABC Company. What would you like to know?"
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+rails:
+  input:
+    flows:
+      - self check input
+  
+  output:
+    flows:
+      - self check output
+```
+
+```colang abc_bot/rails/greeting.co
+define user express greeting
+  "Hello"
+  "Hi"
+  "Hey"
+
+define bot express greeting
+  "Hello! I'm the ABC Bot."
+
+define bot offer to help
+  "How can I help you today?"
+
+define flow greeting
+  user express greeting
+  bot express greeting
+  bot offer to help
+```
+
+```colang abc_bot/rails/off_topic.co
+define user ask about cooking
+  "How can I cook pasta?"
+  "Recipe for cake"
+
+define user ask about politics  
+  "What do you think about the government?"
+  "Which party should I vote for?"
+
+define bot refuse to respond
+  "I'm sorry, I can only answer questions about the ABC Company and employee policies."
+
+define flow refuse off topic
+  priority 100
+  user ask about cooking or user ask about politics
+  bot refuse to respond
+```
+
+```python use_abc_bot.py
+from nemoguardrails import LLMRails, RailsConfig
+
+# Load the ABC Bot configuration
+config = RailsConfig.from_path("./abc_bot")
+rails = LLMRails(config)
+
+# Test various inputs
+test_messages = [
+    "Hello!",
+    "What is the vacation policy?",
+    "How do I cook pasta?",
+    "Tell me about benefits"
+]
+
+for message in test_messages:
+    print(f"\nUser: {message}")
+    response = rails.generate(
+        messages=[{"role": "user", "content": message}]
+    )
+    print(f"Bot: {response['content']}")
+```
+</CodeGroup>
+
+**Expected Output:**
+
+```
+User: Hello!
+Bot: Hello! I'm the ABC Bot. How can I help you today?
+
+User: What is the vacation policy?
+Bot: The ABC Company provides eligible employees with up to two weeks 
+of paid vacation time per year. Please refer to the employee handbook 
+for more information.
+
+User: How do I cook pasta?
+Bot: I'm sorry, I can only answer questions about the ABC Company 
+and employee policies.
+
+User: Tell me about benefits
+Bot: The ABC Company offers comprehensive benefits including health 
+insurance, retirement plans, and paid time off. Would you like to 
+know about a specific benefit?
+```
+
+## Understanding the Configuration Structure
+
+A complete guardrails configuration typically follows this structure:
+
+```
+my_config/
+├── config.yml          # Main configuration file
+├── config.py           # Optional: Custom initialization code  
+├── actions.py          # Optional: Custom Python actions
+└── rails/              # Optional: Organize Colang files
+    ├── greeting.co
+    ├── off_topic.co
+    └── input_rails.co
+```
+
+<Tip>
+You can also use a single `rails.co` file instead of the `rails/` directory for simpler configurations.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" icon="gear" href="https://docs.nvidia.com/nemo/guardrails/user-guides/configuration-guide.html">
+    Learn about advanced configuration options, LLM models, and rail types
+  </Card>
+  <Card title="Colang Language Guide" icon="code" href="https://docs.nvidia.com/nemo/guardrails/user-guides/colang-language-syntax-guide.html">
+    Master the Colang modeling language for dialog control
+  </Card>
+  <Card title="Guardrails Library" icon="shield" href="https://docs.nvidia.com/nemo/guardrails/guardrails/overview.html">
+    Explore built-in guardrails for safety, security, and compliance
+  </Card>
+  <Card title="Examples" icon="folder-open" href="https://github.com/NVIDIA-NeMo/Guardrails/tree/main/examples">
+    Browse comprehensive examples in the GitHub repository
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Define Custom Actions">
+    Create custom Python actions in `actions.py`:
+    
+    ```python actions.py
+    from nemoguardrails.actions import action
+    
+    @action()
+    async def check_company_database(employee_id: str) -> dict:
+        # Your custom logic here
+        return {"name": "John Doe", "department": "Engineering"}
+    ```
+    
+    Use in Colang:
+    
+    ```colang
+    define flow check employee
+      user ask about employee
+      $employee_data = execute check_company_database(employee_id=$employee_id)
+      bot inform employee data
+    ```
+  </Accordion>
+  
+  <Accordion title="Multi-Turn Conversations">
+    Handle complex multi-turn dialogs:
+    
+    ```colang
+    define flow authentication
+      user request access
+      bot ask for credentials
+      user provide credentials
+      $authenticated = execute verify_credentials
+      
+      if $authenticated
+        bot confirm access
+      else
+        bot deny access
+    ```
+  </Accordion>
+  
+  <Accordion title="RAG with Guardrails">
+    Add retrieval rails for RAG applications:
+    
+    ```yaml config.yml
+    rails:
+      retrieval:
+        flows:
+          - check relevance
+          - mask sensitive data
+    ```
+    
+    ```colang rails/retrieval.co
+    define subflow check relevance
+      $chunks = execute filter_relevant_chunks(chunks=$chunks)
+    ```
+  </Accordion>
+  
+  <Accordion title="LangChain Integration">
+    Wrap guardrails around LangChain chains:
+    
+    ```python
+    from langchain.chains import RetrievalQA
+    from nemoguardrails.integrations.langchain import RunnableRails
+    
+    # Your LangChain chain
+    qa_chain = RetrievalQA.from_chain_type(...)
+    
+    # Wrap with guardrails
+    config = RailsConfig.from_path("./config")
+    guardrails = RunnableRails(config)
+    protected_chain = guardrails | qa_chain
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Rails not triggering">
+    **Issue**: Your defined rails aren't being applied.
+    
+    **Solutions**:
+    - Ensure your user message examples in Colang closely match actual user input
+    - Check that rails are registered in `config.yml` under the appropriate section
+    - Use `verbose=True` when creating `LLMRails` to see debug output:
+      ```python
+      rails = LLMRails(config, verbose=True)
+      ```
+  </Accordion>
+  
+  <Accordion title="OpenAI API errors">
+    **Issue**: Errors when calling OpenAI.
+    
+    **Solutions**:
+    - Verify your API key is set: `echo $OPENAI_API_KEY`
+    - Check your OpenAI account has available credits
+    - Try a different model (e.g., `gpt-3.5-turbo` instead of `gpt-3.5-turbo-instruct`)
+  </Accordion>
+  
+  <Accordion title="Colang syntax errors">
+    **Issue**: Errors loading Colang files.
+    
+    **Solutions**:
+    - Check indentation (use spaces, not tabs)
+    - Ensure flow definitions have proper structure
+    - Validate strings are properly quoted
+    - Look for detailed error messages in the output
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Need Help?" icon="question-circle">
+  Visit the [FAQ](https://docs.nvidia.com/nemo/guardrails/faqs.html) or ask questions on [GitHub Discussions](https://github.com/NVIDIA-NeMo/Guardrails/discussions)
+</Card>
